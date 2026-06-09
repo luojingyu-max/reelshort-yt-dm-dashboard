@@ -140,9 +140,12 @@ __CHARTJS__
  <div><h2>各频道区间播放(Top20)</h2><canvas id="cViews"></canvas></div>
 </div>
 <div class="card">
- <h2>每日播放趋势(累计总播放 + 当日新增)</h2>
- <div class="sub" style="margin-bottom:10px">逐日快照累积,历史无法从 API 回填,曲线随天数增长。受平台/频道筛选联动(与上方"发布日期"无关,这里是快照日历)。</div>
- <canvas id="cDaily" style="max-height:340px"></canvas>
+ <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap">
+   <h2 style="margin:0">分日播放(按发布日期)</h2>
+   <span class="seg" id="segMode"><button data-m="channel" class="on">Top10 频道</button><button data-m="video">Top10 视频</button></span>
+ </div>
+ <div class="sub" style="margin-bottom:10px">按视频发布日期聚合的播放量。<b>频道模式</b>:播放最高的 Top10 频道各一条日线;<b>视频模式</b>:Top10 单视频的播放量。用上方"平台/频道/发布日期"筛选可换一批。</div>
+ <canvas id="cDaily" style="max-height:360px"></canvas>
 </div>
 <div class="card"><h2>频道维度</h2><div id="chTable"></div></div>
 <div class="card"><h2>Top 视频(区间内)</h2><div id="vidTable"></div></div>
@@ -154,7 +157,7 @@ const fmt=n=>n==null?'<span class=muted>—</span>':Number(n).toLocaleString();
 const pct=(a,b)=>(a==null||!b)?'<span class=muted>—</span>':(a/b*100).toFixed(2)+'%';
 const key=x=>x.platform+'|'+x.channel_id;
 const tag=p=>`<span class="tag ${p==='YouTube'?'yt':'dm'}">${p==='YouTube'?'YT':'DM'}</span>`;
-let platform='all', dFrom=DMIN, dTo=DMAX, selected=new Set(CH.map(key)), charts={};
+let platform='all', dFrom=DMIN, dTo=DMAX, selected=new Set(CH.map(key)), charts={}, chartMode='channel';
 
 const chPass=c=>(platform==='all'||c.platform===platform)&&selected.has(key(c));
 const vidPass=v=>{const d=(v.published_at||'').slice(0,10);
@@ -190,17 +193,25 @@ function render(){
  setChart('cViews',{type:'bar',data:{labels:byV.map(c=>c.title),
    datasets:[{data:byV.map(c=>c._views),backgroundColor:byV.map(c=>c.platform==='YouTube'?'#e06c75':'#5b9dff')}]},
    options:{plugins:{legend:{display:false}},scales:{x:{ticks:{...axc,maxRotation:60,minRotation:40}},y:{ticks:axc,grid:grd}}}});
- // 每日播放趋势(快照累积):累计总播放 + 当日新增
- const selKeys=new Set(fch.map(key));
- const snapDates=[...new Set(HIST.map(h=>h.date))].sort();
- const cum=snapDates.map(d=>HIST.filter(h=>h.date===d&&selKeys.has(h.platform+'|'+h.channel_id)).reduce((s,h)=>s+(h.total_views||0),0));
- const delta=cum.map((v,i)=>i===0?null:v-cum[i-1]);
- setChart('cDaily',{data:{labels:snapDates,datasets:[
-   {type:'line',label:'累计总播放',data:cum,borderColor:'#5bd1a0',backgroundColor:'rgba(91,209,160,.15)',fill:true,tension:.35,pointRadius:3,yAxisID:'y'},
-   {type:'bar',label:'当日新增',data:delta,backgroundColor:'rgba(91,157,255,.7)',yAxisID:'y1'}
- ]},options:{plugins:{legend:{labels:{color:'#8b929c',boxWidth:12}}},
-   scales:{x:{ticks:axc},y:{position:'left',ticks:axc,grid:grd,title:{display:true,text:'累计播放',color:'#8b929c'}},
-   y1:{position:'right',ticks:axc,grid:{drawOnChartArea:false},title:{display:true,text:'当日新增',color:'#8b929c'}}}}});
+ // 分日播放(按发布日期)
+ const allDates=[...new Set(fvid.map(v=>(v.published_at||'').slice(0,10)).filter(Boolean))].sort();
+ if(chartMode==='channel'){
+   const top=fch.slice().sort((a,b)=>b._views-a._views).slice(0,10);
+   const ds=top.map((c,i)=>{const byd={};
+     (byCh[key(c)]||[]).forEach(v=>{const d=(v.published_at||'').slice(0,10); byd[d]=(byd[d]||0)+(v.views||0);});
+     return {label:c.title,data:allDates.map(d=>byd[d]||0),borderColor:PALETTE[i%PALETTE.length],
+       backgroundColor:PALETTE[i%PALETTE.length],tension:.3,pointRadius:2,fill:false};});
+   setChart('cDaily',{type:'line',data:{labels:allDates,datasets:ds},
+     options:{interaction:{mode:'nearest'},plugins:{legend:{labels:{color:'#8b929c',boxWidth:12}}},
+       scales:{x:{ticks:axc},y:{ticks:axc,grid:grd,title:{display:true,text:'当日播放(按发布日)',color:'#8b929c'}}}}});
+ } else {
+   const topv=fvid.slice().sort((a,b)=>(b.views||0)-(a.views||0)).slice(0,10);
+   setChart('cDaily',{type:'bar',data:{labels:topv.map(v=>v.video_title.length>24?v.video_title.slice(0,24)+'…':v.video_title),
+     datasets:[{label:'播放',data:topv.map(v=>v.views||0),backgroundColor:topv.map(v=>v.platform==='YouTube'?'#e06c75':'#5b9dff')}]},
+     options:{indexAxis:'y',plugins:{legend:{display:false},
+       tooltip:{callbacks:{afterLabel:ctx=>`频道:${topv[ctx.dataIndex].channel_title}　发布:${(topv[ctx.dataIndex].published_at||'').slice(0,10)}`}}},
+       scales:{x:{ticks:axc,grid:grd},y:{ticks:{...axc,autoSkip:false}}}}});
+ }
 
  // tables
  makeTable(document.getElementById('chTable'),[
@@ -289,6 +300,9 @@ function updateChBtn(){const tot=platform==='all'?CH.length:CH.filter(c=>c.platf
 document.getElementById('segPlat').onclick=e=>{if(e.target.tagName!=='BUTTON')return;
  [...e.currentTarget.children].forEach(b=>b.classList.remove('on')); e.target.classList.add('on');
  platform=e.target.dataset.p; buildList(); updateChBtn(); render();};
+document.getElementById('segMode').onclick=e=>{if(e.target.tagName!=='BUTTON')return;
+ [...e.currentTarget.children].forEach(b=>b.classList.remove('on')); e.target.classList.add('on');
+ chartMode=e.target.dataset.m; render();};
 document.getElementById('dFrom').onchange=e=>{dFrom=e.target.value||DMIN; render();};
 document.getElementById('dTo').onchange=e=>{dTo=e.target.value||DMAX; render();};
 document.getElementById('chBtn').onclick=()=>document.getElementById('chPanel').classList.toggle('open');
