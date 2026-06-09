@@ -55,6 +55,12 @@ def main():
         for r in csv.DictReader(open(hp)):
             hist.append({"date": r["date"], "platform": r["platform"], "channel_id": r["channel_id"],
                          "total_views": to_int(r.get("total_views"))})
+    # 视频级每日历史 -> {video_id: [[date, views], ...]}
+    vhist = {}
+    vp = HERE / "history" / "videos_daily.csv"
+    if vp.exists():
+        for r in csv.DictReader(open(vp)):
+            vhist.setdefault(r["video_id"], []).append([r["date"], to_int(r.get("views")) or 0])
 
     libf = HERE / "chart.umd.min.js"
     chartjs = ("<script>"+libf.read_text(encoding="utf-8")+"</script>") if libf.exists() \
@@ -66,7 +72,8 @@ def main():
             .replace("__DMIN__", dmin).replace("__DMAX__", dmax)
             .replace("__CH__", json.dumps(channels, ensure_ascii=False))
             .replace("__VID__", json.dumps(videos, ensure_ascii=False))
-            .replace("__HIST__", json.dumps(hist, ensure_ascii=False)))
+            .replace("__HIST__", json.dumps(hist, ensure_ascii=False))
+            .replace("__VHIST__", json.dumps(vhist, ensure_ascii=False)))
     out = HERE / "combined_site" / "index.html"
     out.parent.mkdir(exist_ok=True)
     out.write_text(html, encoding="utf-8")
@@ -150,11 +157,20 @@ __CHARTJS__
  <div class="sub" style="margin-bottom:10px">按视频发布日期聚合的播放量。<b>频道模式</b>:播放最高的 Top10 频道各一条日线;<b>视频模式</b>:Top10 单视频的播放量。用上方"平台/频道/发布日期"筛选可换一批。</div>
  <canvas id="cDaily" style="max-height:360px"></canvas>
 </div>
+<div class="card">
+ <h2>单视频每日趋势(搜索选择)</h2>
+ <div class="sub" style="margin-bottom:10px">每日快照累积,从今天起逐日生长(历史无法回填)。搜索标题选一条,看它的累计播放与当日新增。</div>
+ <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+  <input type="search" id="vSearch" placeholder="搜索视频标题…" style="flex:1;min-width:220px;background:#0f1115;color:#e6e8eb;border:1px solid #313742;border-radius:6px;padding:7px 10px">
+  <select id="vSelect" style="flex:2;min-width:280px;background:#0f1115;color:#e6e8eb;border:1px solid #313742;border-radius:6px;padding:7px 10px"></select>
+ </div>
+ <canvas id="cVid" style="max-height:320px"></canvas>
+</div>
 <div class="card"><h2>频道维度</h2><div id="chTable"></div></div>
 <div class="card"><h2>Top 视频(区间内)</h2><div id="vidTable"></div></div>
 </div>
 <script>
-const CH=__CH__, VID=__VID__, HIST=__HIST__, DMIN="__DMIN__", DMAX="__DMAX__";
+const CH=__CH__, VID=__VID__, HIST=__HIST__, VHIST=__VHIST__, DMIN="__DMIN__", DMAX="__DMAX__";
 const PALETTE=['#5b9dff','#5bd1a0','#f7b955','#e06c75','#b18cff','#56c2d6','#d49bd4','#9aa7b5'];
 const fmt=n=>n==null?'<span class=muted>—</span>':Number(n).toLocaleString();
 const wan=n=>n==null?'—':(n>=10000?(n/10000).toFixed(1)+'万':Math.round(n).toLocaleString());
@@ -353,10 +369,36 @@ document.getElementById('resetBtn').onclick=()=>{platform='all';selected=new Set
 document.addEventListener('click',e=>{const p=document.getElementById('chPanel'),b=document.getElementById('chBtn');
  if(p.classList.contains('open')&&!p.contains(e.target)&&e.target!==b)p.classList.remove('open');});
 
+// ---- 单视频每日趋势 ----
+function vOptions(){
+ const q=(document.getElementById('vSearch').value||'').toLowerCase();
+ const sel=document.getElementById('vSelect'), cur=sel.value;
+ const list=VID.filter(v=>(v.video_title||'').toLowerCase().includes(q))
+   .sort((a,b)=>(b.views||0)-(a.views||0)).slice(0,300);
+ sel.innerHTML=list.map(v=>`<option value="${v.video_id}">${(v.views||0).toLocaleString()} ▸ ${v.video_title.slice(0,46)} · ${v.channel_title}</option>`).join('')
+   || '<option value="">无匹配视频</option>';
+ if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
+ drawVid();
+}
+function drawVid(){
+ const id=document.getElementById('vSelect').value;
+ const ser=(VHIST[id]||[]).slice().sort((a,b)=>a[0]<b[0]?-1:1);
+ const labels=ser.map(x=>x[0]), views=ser.map(x=>x[1]);
+ const delta=views.map((v,i)=>i===0?null:v-views[i-1]);
+ setChart('cVid',{data:{labels,datasets:[
+   {type:'line',label:'累计播放',data:views,borderColor:'#5bd1a0',backgroundColor:'rgba(91,209,160,.15)',fill:true,tension:.35,pointRadius:3,yAxisID:'y'},
+   {type:'bar',label:'当日新增',data:delta,backgroundColor:'rgba(91,157,255,.7)',yAxisID:'y1'}
+ ]},options:{plugins:{legend:{labels:{color:'#8b929c',boxWidth:12}}},
+   scales:{x:{ticks:axc},y:{position:'left',ticks:axc,grid:grd,title:{display:true,text:'累计播放',color:'#8b929c'}},
+   y1:{position:'right',ticks:axc,grid:{drawOnChartArea:false},title:{display:true,text:'当日新增',color:'#8b929c'}}}}});
+}
+document.getElementById('vSearch').oninput=vOptions;
+document.getElementById('vSelect').onchange=drawVid;
+
 // init
 document.getElementById('dFrom').value=DMIN; document.getElementById('dFrom').min=DMIN; document.getElementById('dFrom').max=DMAX;
 document.getElementById('dTo').value=DMAX; document.getElementById('dTo').min=DMIN; document.getElementById('dTo').max=DMAX;
-buildList(); updateChBtn(); render();
+buildList(); updateChBtn(); render(); vOptions();
 </script></body></html>"""
 
 if __name__ == "__main__":
