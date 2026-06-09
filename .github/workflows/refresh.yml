@@ -34,4 +34,8 @@ jobs:
           SURGE_LOGIN: ${{ secrets.SURGE_LOGIN }}
           SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
         run: |
-          npx --yes surge ./combined_site rs-matrix-dashboard.surge.sh
+          n=0
+          until npx --yes surge ./combined_site rs-matrix-dashboard.surge.sh; do
+            n=$((n+1)); if [ $n -ge 4 ]; then echo "surge 部署重试 $n 次仍失败"; exit 1; fi
+            echo "surge 部署第 $n 次失败,15s 后重试..."; sleep 15
+          done
