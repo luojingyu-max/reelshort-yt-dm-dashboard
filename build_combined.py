@@ -48,6 +48,14 @@ def main():
     dmin = dates[0] if dates else "2020-01-01"
     dmax = dates[-1] if dates else datetime.date.today().isoformat()
 
+    # 每日快照历史(逐日累积,API 无法回填)
+    hist = []
+    hp = HERE / "history" / "daily.csv"
+    if hp.exists():
+        for r in csv.DictReader(open(hp)):
+            hist.append({"date": r["date"], "platform": r["platform"], "channel_id": r["channel_id"],
+                         "total_views": to_int(r.get("total_views"))})
+
     libf = HERE / "chart.umd.min.js"
     chartjs = ("<script>"+libf.read_text(encoding="utf-8")+"</script>") if libf.exists() \
               else '<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>'
@@ -57,7 +65,8 @@ def main():
             .replace("__GEN__", datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
             .replace("__DMIN__", dmin).replace("__DMAX__", dmax)
             .replace("__CH__", json.dumps(channels, ensure_ascii=False))
-            .replace("__VID__", json.dumps(videos, ensure_ascii=False)))
+            .replace("__VID__", json.dumps(videos, ensure_ascii=False))
+            .replace("__HIST__", json.dumps(hist, ensure_ascii=False)))
     out = HERE / "combined_site" / "index.html"
     out.parent.mkdir(exist_ok=True)
     out.write_text(html, encoding="utf-8")
@@ -130,15 +139,16 @@ __CHARTJS__
  <div><h2>各频道订阅/粉丝(累计 · Top20)</h2><canvas id="cSub"></canvas></div>
  <div><h2>各频道区间播放(Top20)</h2><canvas id="cViews"></canvas></div>
 </div>
-<div class="card grid2">
- <div><h2>月度发布量(按平台)</h2><canvas id="cCadence"></canvas></div>
- <div><h2>月度播放量(按发布月)</h2><canvas id="cTrend"></canvas></div>
+<div class="card">
+ <h2>每日播放趋势(累计总播放 + 当日新增)</h2>
+ <div class="sub" style="margin-bottom:10px">逐日快照累积,历史无法从 API 回填,曲线随天数增长。受平台/频道筛选联动(与上方"发布日期"无关,这里是快照日历)。</div>
+ <canvas id="cDaily" style="max-height:340px"></canvas>
 </div>
 <div class="card"><h2>频道维度</h2><div id="chTable"></div></div>
 <div class="card"><h2>Top 视频(区间内)</h2><div id="vidTable"></div></div>
 </div>
 <script>
-const CH=__CH__, VID=__VID__, DMIN="__DMIN__", DMAX="__DMAX__";
+const CH=__CH__, VID=__VID__, HIST=__HIST__, DMIN="__DMIN__", DMAX="__DMAX__";
 const PALETTE=['#5b9dff','#5bd1a0','#f7b955','#e06c75','#b18cff','#56c2d6','#d49bd4','#9aa7b5'];
 const fmt=n=>n==null?'<span class=muted>—</span>':Number(n).toLocaleString();
 const pct=(a,b)=>(a==null||!b)?'<span class=muted>—</span>':(a/b*100).toFixed(2)+'%';
@@ -180,17 +190,17 @@ function render(){
  setChart('cViews',{type:'bar',data:{labels:byV.map(c=>c.title),
    datasets:[{data:byV.map(c=>c._views),backgroundColor:byV.map(c=>c.platform==='YouTube'?'#e06c75':'#5b9dff')}]},
    options:{plugins:{legend:{display:false}},scales:{x:{ticks:{...axc,maxRotation:60,minRotation:40}},y:{ticks:axc,grid:grd}}}});
- // cadence by platform (stacked)
- const months=[...new Set(fvid.map(v=>(v.published_at||'').slice(0,7)).filter(Boolean))].sort();
- const plats=platform==='all'?['YouTube','Dailymotion']:[platform];
- setChart('cCadence',{type:'bar',data:{labels:months,datasets:plats.map((p,i)=>({label:p,
-   backgroundColor:p==='YouTube'?'#e06c75':'#5b9dff',
-   data:months.map(m=>fvid.filter(v=>v.platform===p&&(v.published_at||'').slice(0,7)===m).length)}))},
-   options:{plugins:{legend:{labels:{color:'#8b929c',boxWidth:12}}},scales:{x:{stacked:true,ticks:axc},y:{stacked:true,ticks:axc,grid:grd}}}});
- // trend: monthly views
- const trend=months.map(m=>fvid.filter(v=>(v.published_at||'').slice(0,7)===m).reduce((s,v)=>s+(v.views||0),0));
- setChart('cTrend',{type:'line',data:{labels:months,datasets:[{data:trend,borderColor:'#5bd1a0',backgroundColor:'#5bd1a0',tension:.3}]},
-   options:{plugins:{legend:{display:false}},scales:{x:{ticks:axc},y:{ticks:axc,grid:grd}}}});
+ // 每日播放趋势(快照累积):累计总播放 + 当日新增
+ const selKeys=new Set(fch.map(key));
+ const snapDates=[...new Set(HIST.map(h=>h.date))].sort();
+ const cum=snapDates.map(d=>HIST.filter(h=>h.date===d&&selKeys.has(h.platform+'|'+h.channel_id)).reduce((s,h)=>s+(h.total_views||0),0));
+ const delta=cum.map((v,i)=>i===0?null:v-cum[i-1]);
+ setChart('cDaily',{data:{labels:snapDates,datasets:[
+   {type:'line',label:'累计总播放',data:cum,borderColor:'#5bd1a0',backgroundColor:'rgba(91,209,160,.15)',fill:true,tension:.35,pointRadius:3,yAxisID:'y'},
+   {type:'bar',label:'当日新增',data:delta,backgroundColor:'rgba(91,157,255,.7)',yAxisID:'y1'}
+ ]},options:{plugins:{legend:{labels:{color:'#8b929c',boxWidth:12}}},
+   scales:{x:{ticks:axc},y:{position:'left',ticks:axc,grid:grd,title:{display:true,text:'累计播放',color:'#8b929c'}},
+   y1:{position:'right',ticks:axc,grid:{drawOnChartArea:false},title:{display:true,text:'当日新增',color:'#8b929c'}}}}});
 
  // tables
  makeTable(document.getElementById('chTable'),[
