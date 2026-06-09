@@ -117,6 +117,7 @@ def main():
             .replace("__GEN__", datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
             .replace("__CH__", json.dumps(channels, ensure_ascii=False))
             .replace("__VID__", json.dumps(vids, ensure_ascii=False)))
+    pathlib.Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     pathlib.Path(a.out).write_text(html, encoding="utf-8")
     sys.stderr.write(f"\n[done] {len(channels)} 频道 / {len(vids)} 视频  ->  dm_channels.csv  dm_videos.csv  {a.out}\n")
 
