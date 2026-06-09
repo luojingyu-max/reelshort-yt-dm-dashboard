@@ -96,6 +96,10 @@ __CHARTJS__
  th{color:#8b929c;font-weight:600;cursor:pointer;user-select:none} td.num,th.num{text-align:right}
  tr:hover td{background:#20242c} a{color:#5b9dff;text-decoration:none} .muted{color:#6b7280}
  .tag{font-size:11px;padding:1px 6px;border-radius:4px} .yt{background:#3a1d1d;color:#ff7b7b} .dm{background:#1d2a3a;color:#6db3ff}
+ .tbar{display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+ .tbar .btn{padding:5px 10px} .tinfo{color:#8b929c;font-size:12px}
+ .pager{margin-left:auto;display:flex;align-items:center;gap:6px;color:#8b929c;font-size:12px}
+ .pager select{background:#0f1115;color:#e6e8eb;border:1px solid #313742;border-radius:6px;padding:3px 6px}
  canvas{max-height:280px}
  @media(max-width:760px){.kpis{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
 </style></head><body><div class="wrap">
@@ -198,9 +202,9 @@ function render(){
    {h:'区间视频',num:1,f:r=>fmt(r._n),s:r=>r._n},
    {h:'区间播放',num:1,f:r=>fmt(r._views),s:r=>r._views},
    {h:'区间均播放',num:1,f:r=>fmt(r._avg),s:r=>r._avg},
-   {h:'点赞率',num:1,f:r=>pct(r._likes,r._views),s:r=>r._views?r._likes/r._views:0},
-   {h:'评论率',num:1,f:r=>pct(r._comments,r._views),s:r=>r._views?r._comments/r._views:0},
- ],fch.slice().sort((a,b)=>b._views-a._views));
+   {h:'点赞率',num:1,f:r=>pct(r._likes,r._views),s:r=>r._views?r._likes/r._views:0,csv:r=>pctNum(r._likes,r._views)},
+   {h:'评论率',num:1,f:r=>pct(r._comments,r._views),s:r=>r._views?r._comments/r._views:0,csv:r=>pctNum(r._comments,r._views)},
+ ],fch.slice().sort((a,b)=>b._views-a._views),{pageSize:25,exportName:'channels'});
 
  makeTable(document.getElementById('vidTable'),[
    {h:'平台',f:r=>tag(r.platform),s:r=>r.platform},
@@ -211,19 +215,39 @@ function render(){
    {h:'播放',num:1,f:r=>fmt(r.views),s:r=>r.views||0},
    {h:'点赞',num:1,f:r=>fmt(r.likes),s:r=>r.likes||0},
    {h:'评论',num:1,f:r=>fmt(r.comments),s:r=>r.comments||0},
-   {h:'点赞率',num:1,f:r=>pct(r.likes,r.views),s:r=>r.views?(r.likes||0)/r.views:0},
- ],fvid.slice().sort((a,b)=>(b.views||0)-(a.views||0)).slice(0,300));
+   {h:'点赞率',num:1,f:r=>pct(r.likes,r.views),s:r=>r.views?(r.likes||0)/r.views:0,csv:r=>pctNum(r.likes,r.views)},
+ ],fvid.slice().sort((a,b)=>(b.views||0)-(a.views||0)),{pageSize:25,exportName:'videos'});
 }
 
-function makeTable(el,cols,rows){
+const pctNum=(a,b)=>(a==null||!b)?'':(a/b*100).toFixed(2);
+function exportCSV(cols,rows,name){
+ const esc=v=>{v=(v==null?'':String(v));return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+ const head=cols.map(c=>esc(c.h)).join(',');
+ const body=rows.map(r=>cols.map(c=>esc(c.csv?c.csv(r):c.s(r))).join(',')).join('\n');
+ const blob=new Blob(['﻿'+head+'\n'+body],{type:'text/csv;charset=utf-8'});
+ const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+ a.download=name+'_'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(a.href);
+}
+function makeTable(el,cols,rows,opts){
+ opts=opts||{}; let pageSize=opts.pageSize||25, page=1, asc={}, data=rows.slice();
+ const bar=document.createElement('div'); bar.className='tbar';
+ bar.innerHTML=`<button class="btn" data-act=export>⬇ 导出 CSV(全部 ${data.length} 条)</button>`
+   +`<span class=pager><button class="btn" data-act=prev>‹ 上一页</button>`
+   +`<span class=pageind></span><button class="btn" data-act=next>下一页 ›</button>`
+   +` 每页 <select data-act=size><option>25</option><option>50</option><option>100</option></select></span>`;
  const t=document.createElement('table');
  t.innerHTML='<thead><tr>'+cols.map((c,i)=>`<th class="${c.num?'num':''}" data-i=${i}>${c.h}</th>`).join('')+'</tr></thead><tbody></tbody>';
  const tb=t.querySelector('tbody');
- const draw=d=>{tb.innerHTML=d.map(r=>'<tr>'+cols.map(c=>`<td class="${c.num?'num':''}">${c.f(r)}</td>`).join('')+'</tr>').join('')};
- draw(rows); let asc={};
+ function draw(){const pages=Math.max(1,Math.ceil(data.length/pageSize)); if(page>pages)page=pages; if(page<1)page=1;
+   const s=data.slice((page-1)*pageSize,page*pageSize);
+   tb.innerHTML=s.map(r=>'<tr>'+cols.map(c=>`<td class="${c.num?'num':''}">${c.f(r)}</td>`).join('')+'</tr>').join('');
+   bar.querySelector('.pageind').textContent=` 第 ${page}/${pages} 页(共 ${data.length} 条) `;}
  t.querySelectorAll('th').forEach((th,i)=>th.onclick=()=>{asc[i]=!asc[i];
-   rows.sort((a,b)=>{const va=cols[i].s(a),vb=cols[i].s(b);return(va>vb?1:va<vb?-1:0)*(asc[i]?1:-1)});draw(rows)});
- el.innerHTML='';el.appendChild(t);
+   data.sort((a,b)=>{const va=cols[i].s(a),vb=cols[i].s(b);return(va>vb?1:va<vb?-1:0)*(asc[i]?1:-1)});page=1;draw();});
+ bar.onclick=e=>{const a=e.target.dataset.act; if(a==='prev'){page--;draw();}
+   else if(a==='next'){page++;draw();} else if(a==='export')exportCSV(cols,data,opts.exportName||'export');};
+ bar.querySelector('[data-act=size]').onchange=e=>{pageSize=+e.target.value;page=1;draw();};
+ el.innerHTML=''; el.appendChild(bar); el.appendChild(t); draw();
 }
 
 // ---- 频道筛选面板 ----

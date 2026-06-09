@@ -24,6 +24,4 @@ jobs:
           SURGE_LOGIN: ${{ secrets.SURGE_LOGIN }}
           SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
         run: |
-          npx --yes surge ./yt_site       rs-yt-dashboard.surge.sh
-          npx --yes surge ./yt_site_dm    rs-dm-dashboard.surge.sh
           npx --yes surge ./combined_site rs-matrix-dashboard.surge.sh
