@@ -99,6 +99,8 @@ __CHARTJS__
  .kpi .v{font-size:24px;font-weight:700} .kpi .l{color:#8b929c;font-size:12px;margin-top:4px}
  .card{background:#1a1d24;border:1px solid #262a33;border-radius:10px;padding:16px;margin-bottom:20px}
  .card h2{font-size:15px;margin:0 0 12px}
+ .ins{margin:0;padding-left:20px} .ins li{margin:7px 0;line-height:1.65;color:#cdd2d9;font-size:13.5px}
+ .ins b{color:#fff}
  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
  table{width:100%;border-collapse:collapse;font-size:13px}
  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #262a33;white-space:nowrap}
@@ -135,6 +137,7 @@ __CHARTJS__
 </div>
 
 <div class="kpis" id="kpis"></div>
+<div class="card"><h2>数据总结(随筛选自动更新)</h2><ul class="ins" id="insights"></ul></div>
 <div class="card grid2">
  <div><h2>各频道订阅/粉丝(累计 · Top20)</h2><canvas id="cSub"></canvas></div>
  <div><h2>各频道区间播放(Top20)</h2><canvas id="cViews"></canvas></div>
@@ -154,6 +157,7 @@ __CHARTJS__
 const CH=__CH__, VID=__VID__, HIST=__HIST__, DMIN="__DMIN__", DMAX="__DMAX__";
 const PALETTE=['#5b9dff','#5bd1a0','#f7b955','#e06c75','#b18cff','#56c2d6','#d49bd4','#9aa7b5'];
 const fmt=n=>n==null?'<span class=muted>—</span>':Number(n).toLocaleString();
+const wan=n=>n==null?'—':(n>=10000?(n/10000).toFixed(1)+'万':Math.round(n).toLocaleString());
 const pct=(a,b)=>(a==null||!b)?'<span class=muted>—</span>':(a/b*100).toFixed(2)+'%';
 const key=x=>x.platform+'|'+x.channel_id;
 const tag=p=>`<span class="tag ${p==='YouTube'?'yt':'dm'}">${p==='YouTube'?'YT':'DM'}</span>`;
@@ -182,6 +186,7 @@ function render(){
   ['频道数',fch.length],['区间视频数',fvid.length],
   ['总订阅/粉丝(累计)',sum(fch,'subscribers')],['区间播放合计',sum(fvid,'views')],
  ].map(([l,v])=>`<div class=kpi><div class=v>${v.toLocaleString()}</div><div class=l>${l}</div></div>`).join('');
+ document.getElementById('insights').innerHTML=buildInsights(fch,fvid).map(b=>`<li>${b}</li>`).join('');
 
  // bar: subscribers (lifetime) top20
  const bySub=fch.slice().sort((a,b)=>(b.subscribers||0)-(a.subscribers||0)).slice(0,20);
@@ -248,6 +253,38 @@ function exportCSV(cols,rows,name){
  const blob=new Blob(['﻿'+head+'\n'+body],{type:'text/csv;charset=utf-8'});
  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
  a.download=name+'_'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(a.href);
+}
+function buildInsights(fch,fvid){
+ if(!fvid.length) return ['当前筛选条件下无数据。'];
+ const B=[];
+ const tv=fvid.reduce((s,v)=>s+(v.views||0),0);
+ const tl=fvid.reduce((s,v)=>s+(v.likes||0),0);
+ // 1) 总量 + 单视频均播放
+ B.push(`当前共 <b>${fch.length}</b> 个频道、<b>${fvid.length}</b> 条视频,总播放 <b>${wan(tv)}</b>,单视频平均播放 <b>${wan(tv/fvid.length)}</b>。`);
+ // 2) 平台对比(仅"全部"时)
+ const plats=['YouTube','Dailymotion'].map(p=>{const vd=fvid.filter(v=>v.platform===p);
+   const vv=vd.reduce((s,v)=>s+(v.views||0),0);
+   return {p,nc:fch.filter(c=>c.platform===p).length,nv:vd.length,vv,avg:vd.length?vv/vd.length:0};}).filter(x=>x.nv>0);
+ if(plats.length===2){const a=[...plats].sort((x,y)=>y.avg-x.avg),hi=a[0],lo=a[1];
+   const mult=lo.avg?(hi.avg/lo.avg):0;
+   B.push(`平台对比:${hi.p} ${hi.nc} 频道/${hi.nv} 视频/${wan(hi.vv)} 播放(单视频均 <b>${wan(hi.avg)}</b>),${lo.p} ${lo.nc} 频道/${lo.nv} 视频/${wan(lo.vv)} 播放(单视频均 ${wan(lo.avg)})。<b>${hi.p} 单视频效率领先,是 ${lo.p} 的 ${mult.toFixed(1)} 倍</b>。`);}
+ // 3) 头部集中度
+ const sc=fch.slice().sort((x,y)=>y._views-x._views), totCh=sc.reduce((s,c)=>s+c._views,0)||1;
+ if(sc.length>=3){const t3=sc.slice(0,3);
+   B.push(`播放高度集中在头部:Top3 频道 <b>${t3.map(c=>c.title).join('、')}</b> 合计占总播放 <b>${(t3.reduce((s,c)=>s+c._views,0)/totCh*100).toFixed(0)}%</b>。`);}
+ // 4) 单条最高 + 发布量vs效率
+ const tvid=fvid.slice().sort((x,y)=>(y.views||0)-(x.views||0))[0];
+ if(tvid) B.push(`单条播放最高:《${tvid.video_title}》— ${tvid.channel_title},<b>${wan(tvid.views)}</b>(${(tvid.published_at||'').slice(0,10)})。`);
+ const pro=fch.slice().sort((x,y)=>y._n-x._n)[0];
+ if(pro&&pro._n>0) B.push(`发布最勤:${pro.title} 区间内 <b>${pro._n}</b> 条,单视频均播放 ${wan(pro._avg)} — 发布量高 ≠ 单条效率高,可对照"分日播放"看产出质量。`);
+ // 5) 互动
+ const eng=tv?(tl/tv*100):0;
+ const cand=fch.filter(c=>c._views>=Math.max(2000,tv*0.01));
+ const be=cand.slice().sort((x,y)=>(y._likes/(y._views||1))-(x._likes/(x._views||1)))[0];
+ let s=`整体点赞率 <b>${eng.toFixed(2)}%</b>`;
+ if(be) s+=`;有量级频道里互动最高的是 <b>${be.title}</b>(${(be._likes/(be._views||1)*100).toFixed(2)}%)`;
+ B.push(s+'。');
+ return B;
 }
 function makeTable(el,cols,rows,opts){
  opts=opts||{}; let pageSize=opts.pageSize||25, page=1, asc={}, data=rows.slice();
