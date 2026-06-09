@@ -1,0 +1,29 @@
+name: refresh-dashboards
+on:
+  schedule:
+    - cron: '0 1 * * *'        # 01:00 UTC = 北京时间 09:00
+  workflow_dispatch:            # 也支持手动点一下立即跑
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Fetch data + build dashboards
+        env:
+          YT_API_KEY: ${{ secrets.YT_API_KEY }}
+        run: |
+          python3 yt_report.py --file channel_ids.txt --out yt_site/index.html
+          python3 dm_report.py --file dm_ids.txt --out yt_site_dm/index.html
+          python3 build_combined.py
+      - name: Deploy to Surge
+        env:
+          SURGE_LOGIN: ${{ secrets.SURGE_LOGIN }}
+          SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
+        run: |
+          npx --yes surge ./yt_site       rs-yt-dashboard.surge.sh
+          npx --yes surge ./yt_site_dm    rs-dm-dashboard.surge.sh
+          npx --yes surge ./combined_site rs-matrix-dashboard.surge.sh
