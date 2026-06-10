@@ -38,7 +38,7 @@ def main():
     } for r in ch]
     videos = [{
         "platform": r["platform"], "channel_id": r["channel_id"], "channel_title": r["channel_title"],
-        "video_title": r["video_title"], "published_at": r.get("published_at", ""),
+        "video_id": r["video_id"], "video_title": r["video_title"], "published_at": r.get("published_at", ""),
         "duration": r.get("duration", ""), "duration_sec": to_int(r.get("duration_sec")) or 0,
         "views": to_int(r.get("views")), "likes": to_int(r.get("likes")), "comments": to_int(r.get("comments")),
         "url": r.get("url", ""),
