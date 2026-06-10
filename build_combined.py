@@ -44,6 +44,18 @@ def main():
         "url": r.get("url", ""),
     } for r in vd]
 
+    # DM 频道 -> 负责人(owner.xlsx 导出的 dm_owners.csv,仅 DM)
+    owners = {}
+    op = HERE / "dm_owners.csv"
+    if op.exists():
+        for r in csv.DictReader(open(op)):
+            owners[r["title"].strip()] = r["operator"].strip()
+    for c in channels:
+        c["operator"] = (owners.get(c["title"].strip(), "未分配") if c["platform"] == "Dailymotion" else "")
+    opmap = {(c["platform"], c["channel_id"]): c["operator"] for c in channels}
+    for v in videos:
+        v["operator"] = opmap.get((v["platform"], v["channel_id"]), "")
+
     dates = sorted(v["published_at"][:10] for v in videos if v.get("published_at"))
     dmin = dates[0] if dates else "2020-01-01"
     dmax = dates[-1] if dates else datetime.date.today().isoformat()
@@ -166,6 +178,15 @@ __CHARTJS__
  </div>
  <canvas id="cVid" style="max-height:320px"></canvas>
 </div>
+<div class="card">
+ <h2>人效比(按 DM 负责人)</h2>
+ <div class="sub" style="margin-bottom:10px">仅 Dailymotion,按 owner.xlsx 的频道归属聚合。<b>单视频均播放</b>是人效核心(产出质量),<b>区间视频数</b>是产出量。受平台/频道/日期筛选联动。</div>
+ <div class="grid2">
+  <div><canvas id="cOpViews"></canvas></div>
+  <div><canvas id="cOpAvg"></canvas></div>
+ </div>
+ <div id="opTable" style="margin-top:14px"></div>
+</div>
 <div class="card"><h2>频道维度</h2><div id="chTable"></div></div>
 <div class="card"><h2>Top 视频(区间内)</h2><div id="vidTable"></div></div>
 </div>
@@ -235,8 +256,30 @@ function render(){
  }
 
  // tables
+ // 人效比(DM 负责人聚合)
+ const ops={}, ens=o=>ops[o]=ops[o]||{op:o,nc:0,nv:0,views:0,likes:0};
+ fch.forEach(c=>{if(c.operator) ens(c.operator).nc++;});
+ fvid.forEach(v=>{if(v.operator){const o=ens(v.operator); o.nv++; o.views+=v.views||0; o.likes+=v.likes||0;}});
+ const opArr=Object.values(ops).sort((a,b)=>b.views-a.views);
+ opArr.forEach(o=>o.avg=o.nv?Math.round(o.views/o.nv):0);
+ const opL=opArr.map(o=>o.op);
+ setChart('cOpViews',{type:'bar',data:{labels:opL,datasets:[{data:opArr.map(o=>o.views),backgroundColor:'#5b9dff'}]},
+   options:{plugins:{legend:{display:false},title:{display:true,text:'各负责人 · 区间播放合计',color:'#cdd2d9'}},scales:{x:{ticks:axc},y:{ticks:axc,grid:grd}}}});
+ setChart('cOpAvg',{type:'bar',data:{labels:opL,datasets:[{data:opArr.map(o=>o.avg),backgroundColor:'#5bd1a0'}]},
+   options:{plugins:{legend:{display:false},title:{display:true,text:'各负责人 · 单视频均播放(人效)',color:'#cdd2d9'}},scales:{x:{ticks:axc},y:{ticks:axc,grid:grd}}}});
+ makeTable(document.getElementById('opTable'),[
+   {h:'负责人',f:r=>r.op,s:r=>r.op},
+   {h:'频道数',num:1,f:r=>fmt(r.nc),s:r=>r.nc},
+   {h:'区间视频',num:1,f:r=>fmt(r.nv),s:r=>r.nv},
+   {h:'区间播放',num:1,f:r=>fmt(r.views),s:r=>r.views},
+   {h:'单视频均播放',num:1,f:r=>fmt(r.avg),s:r=>r.avg},
+   {h:'频道均播放',num:1,f:r=>fmt(r.nc?Math.round(r.views/r.nc):0),s:r=>r.nc?r.views/r.nc:0},
+   {h:'点赞率',num:1,f:r=>pct(r.likes,r.views),s:r=>r.views?r.likes/r.views:0,csv:r=>pctNum(r.likes,r.views)},
+ ],opArr,{pageSize:25,exportName:'operators'});
+
  makeTable(document.getElementById('chTable'),[
    {h:'平台',f:r=>tag(r.platform),s:r=>r.platform},
+   {h:'负责人',f:r=>r.operator||'<span class=muted>—</span>',s:r=>r.operator||''},
    {h:'频道',f:r=>`<a href="${r.platform==='YouTube'?'https://youtube.com/channel/'+r.channel_id:'https://www.dailymotion.com/'+r.channel_id}" target=_blank>${r.title}</a>`,s:r=>r.title},
    {h:'订阅/粉丝',num:1,f:r=>fmt(r.subscribers),s:r=>r.subscribers||0},
    {h:'总播放(累计)',num:1,f:r=>fmt(r.total_views),s:r=>r.total_views||0},
@@ -300,6 +343,11 @@ function buildInsights(fch,fvid){
  let s=`整体点赞率 <b>${eng.toFixed(2)}%</b>`;
  if(be) s+=`;有量级频道里互动最高的是 <b>${be.title}</b>(${(be._likes/(be._views||1)*100).toFixed(2)}%)`;
  B.push(s+'。');
+ // 运营人效(DM 负责人)
+ const opm={}; fvid.forEach(v=>{if(v.operator&&v.operator!=='未分配'){const o=opm[v.operator]=opm[v.operator]||{nv:0,vv:0};o.nv++;o.vv+=v.views||0;}});
+ const oa=Object.entries(opm).map(([k,o])=>({op:k,nv:o.nv,vv:o.vv,avg:o.nv?o.vv/o.nv:0})).sort((a,b)=>b.avg-a.avg);
+ if(oa.length>=2){const hi=oa[0],lo=oa[oa.length-1];
+   B.push(`运营人效(DM):${oa.map(o=>`${o.op} ${o.nv} 视频/${wan(o.vv)} 播放/单视频均 <b>${wan(o.avg)}</b>`).join(';')}。<b>${hi.op} 单视频效率最高</b>${lo.avg?`,是 ${lo.op} 的 ${(hi.avg/lo.avg).toFixed(1)} 倍`:''}。`);}
  return B;
 }
 function makeTable(el,cols,rows,opts){
