@@ -436,6 +436,11 @@ function vOptions(){
  sel.innerHTML=list.map(v=>`<option value="${v.video_id}">${(v.views||0).toLocaleString()} ▸ ${v.video_title.slice(0,46)} · ${v.channel_title}</option>`).join('')
    || '<option value="">无匹配视频</option>';
  if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
+ else { // 默认选历史点最多的(优先能看出趋势的视频)
+   let best='',bn=-1;
+   for(const o of sel.options){const n=(VHIST[o.value]||[]).length; if(n>bn){bn=n;best=o.value;}}
+   if(best) sel.value=best;
+ }
  drawVid();
 }
 function drawVid(){
@@ -443,10 +448,11 @@ function drawVid(){
  const ser=(VHIST[id]||[]).slice().sort((a,b)=>a[0]<b[0]?-1:1);
  const labels=ser.map(x=>x[0]), views=ser.map(x=>x[1]);
  const delta=views.map((v,i)=>i===0?null:v-views[i-1]);
+ const hint=ser.length<2?`该视频暂仅 ${ser.length} 天快照,趋势将逐日生长(新纳入的频道从今日起累积)`:'';
  setChart('cVid',{data:{labels,datasets:[
    {type:'line',label:'累计播放',data:views,borderColor:'#5bd1a0',backgroundColor:'rgba(91,209,160,.15)',fill:true,tension:.35,pointRadius:3,yAxisID:'y'},
    {type:'bar',label:'当日新增',data:delta,backgroundColor:'rgba(91,157,255,.7)',yAxisID:'y1'}
- ]},options:{plugins:{legend:{labels:{color:'#8b929c',boxWidth:12}}},
+ ]},options:{plugins:{legend:{labels:{color:'#8b929c',boxWidth:12}},title:{display:!!hint,text:hint,color:'#f7b955',font:{size:13}}},
    scales:{x:{ticks:axc},y:{position:'left',ticks:axc,grid:grd,title:{display:true,text:'累计播放',color:'#8b929c'}},
    y1:{position:'right',ticks:axc,grid:{drawOnChartArea:false},title:{display:true,text:'当日新增',color:'#8b929c'}}}}});
 }
