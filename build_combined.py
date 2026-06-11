@@ -301,6 +301,7 @@ function render(){
 
  makeTable(document.getElementById('vidTable'),[
    {h:'平台',f:r=>tag(r.platform),s:r=>r.platform},
+   {h:'负责人',f:r=>r.operator||'<span class=muted>—</span>',s:r=>r.operator||''},
    {h:'频道',f:r=>r.channel_title,s:r=>r.channel_title},
    {h:'视频',f:r=>`<a href="${r.url}" target=_blank>${r.video_title}</a>`,s:r=>r.video_title},
    {h:'发布',f:r=>(r.published_at||'').slice(0,10),s:r=>r.published_at||''},
