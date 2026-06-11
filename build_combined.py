@@ -44,14 +44,19 @@ def main():
         "url": r.get("url", ""),
     } for r in vd]
 
-    # DM 频道 -> 负责人(owner.xlsx 导出的 dm_owners.csv,仅 DM)
-    owners = {}
-    op = HERE / "dm_owners.csv"
-    if op.exists():
-        for r in csv.DictReader(open(op)):
-            owners[r["title"].strip()] = r["operator"].strip()
+    # 频道 -> 负责人:DM 按频道名(dm_owners.csv),YouTube 按频道ID(yt_owners.csv)
+    dm_owners, yt_owners = {}, {}
+    p1 = HERE / "dm_owners.csv"
+    if p1.exists():
+        for r in csv.DictReader(open(p1)): dm_owners[r["title"].strip()] = r["operator"].strip()
+    p2 = HERE / "yt_owners.csv"
+    if p2.exists():
+        for r in csv.DictReader(open(p2)): yt_owners[r["channel_id"].strip()] = r["operator"].strip()
     for c in channels:
-        c["operator"] = (owners.get(c["title"].strip(), "未分配") if c["platform"] == "Dailymotion" else "")
+        if c["platform"] == "Dailymotion":
+            c["operator"] = dm_owners.get(c["title"].strip(), "未分配")
+        else:
+            c["operator"] = yt_owners.get(c["channel_id"].strip(), "未分配")
     opmap = {(c["platform"], c["channel_id"]): c["operator"] for c in channels}
     for v in videos:
         v["operator"] = opmap.get((v["platform"], v["channel_id"]), "")
@@ -179,8 +184,8 @@ __CHARTJS__
  <canvas id="cVid" style="max-height:320px"></canvas>
 </div>
 <div class="card">
- <h2>人效比(按 DM 负责人)</h2>
- <div class="sub" style="margin-bottom:10px">仅 Dailymotion,按 owner.xlsx 的频道归属聚合。<b>单视频均播放</b>是人效核心(产出质量),<b>区间视频数</b>是产出量。受平台/频道/日期筛选联动。</div>
+ <h2 id="opTitle">人效比</h2>
+ <div class="sub" style="margin-bottom:10px">按负责人聚合(DM 来自 owner.xlsx、YouTube 来自 YouTube账号.xlsx)。<b>单视频均播放</b>是人效核心(产出质量),<b>区间视频数</b>是产出量。「全部」时为双平台汇总对比。受平台/频道/日期筛选联动。</div>
  <div class="grid2">
   <div><canvas id="cOpViews"></canvas></div>
   <div><canvas id="cOpAvg"></canvas></div>
@@ -256,18 +261,21 @@ function render(){
  }
 
  // tables
- // 人效比(DM 负责人聚合)
- const ops={}, ens=o=>ops[o]=ops[o]||{op:o,nc:0,nv:0,views:0,likes:0};
- fch.forEach(c=>{if(c.operator) ens(c.operator).nc++;});
- fvid.forEach(v=>{if(v.operator){const o=ens(v.operator); o.nv++; o.views+=v.views||0; o.likes+=v.likes||0;}});
+ // 人效比(按负责人聚合;全部=双平台汇总对比)
+ const ops={}, ens=o=>ops[o]=ops[o]||{op:o,plat:'',nc:0,nv:0,views:0,likes:0};
+ const setp=(o,p)=>o.plat=(o.plat===''?p:(o.plat===p?o.plat:'混合'));
+ fch.forEach(c=>{if(c.operator){const o=ens(c.operator); o.nc++; setp(o,c.platform);}});
+ fvid.forEach(v=>{if(v.operator){const o=ens(v.operator); o.nv++; o.views+=v.views||0; o.likes+=v.likes||0; setp(o,v.platform);}});
  const opArr=Object.values(ops).sort((a,b)=>b.views-a.views);
  opArr.forEach(o=>o.avg=o.nv?Math.round(o.views/o.nv):0);
- const opL=opArr.map(o=>o.op);
- setChart('cOpViews',{type:'bar',data:{labels:opL,datasets:[{data:opArr.map(o=>o.views),backgroundColor:'#5b9dff'}]},
+ document.getElementById('opTitle').textContent = platform==='all'?'人效比(双平台汇总对比)':(platform==='YouTube'?'人效比(按 YouTube 负责人)':'人效比(按 DM 负责人)');
+ const opL=opArr.map(o=>o.op), opColor=opArr.map(o=>o.plat==='YouTube'?'#e06c75':'#5b9dff');
+ setChart('cOpViews',{type:'bar',data:{labels:opL,datasets:[{data:opArr.map(o=>o.views),backgroundColor:opColor}]},
    options:{plugins:{legend:{display:false},title:{display:true,text:'各负责人 · 区间播放合计',color:'#cdd2d9'}},scales:{x:{ticks:axc},y:{ticks:axc,grid:grd}}}});
- setChart('cOpAvg',{type:'bar',data:{labels:opL,datasets:[{data:opArr.map(o=>o.avg),backgroundColor:'#5bd1a0'}]},
+ setChart('cOpAvg',{type:'bar',data:{labels:opL,datasets:[{data:opArr.map(o=>o.avg),backgroundColor:opColor}]},
    options:{plugins:{legend:{display:false},title:{display:true,text:'各负责人 · 单视频均播放(人效)',color:'#cdd2d9'}},scales:{x:{ticks:axc},y:{ticks:axc,grid:grd}}}});
  makeTable(document.getElementById('opTable'),[
+   {h:'平台',f:r=>r.plat==='YouTube'?tag('YouTube'):r.plat==='Dailymotion'?tag('Dailymotion'):'混合',s:r=>r.plat},
    {h:'负责人',f:r=>r.op,s:r=>r.op},
    {h:'频道数',num:1,f:r=>fmt(r.nc),s:r=>r.nc},
    {h:'区间视频',num:1,f:r=>fmt(r.nv),s:r=>r.nv},
@@ -343,11 +351,12 @@ function buildInsights(fch,fvid){
  let s=`整体点赞率 <b>${eng.toFixed(2)}%</b>`;
  if(be) s+=`;有量级频道里互动最高的是 <b>${be.title}</b>(${(be._likes/(be._views||1)*100).toFixed(2)}%)`;
  B.push(s+'。');
- // 运营人效(DM 负责人)
- const opm={}; fvid.forEach(v=>{if(v.operator&&v.operator!=='未分配'){const o=opm[v.operator]=opm[v.operator]||{nv:0,vv:0};o.nv++;o.vv+=v.views||0;}});
- const oa=Object.entries(opm).map(([k,o])=>({op:k,nv:o.nv,vv:o.vv,avg:o.nv?o.vv/o.nv:0})).sort((a,b)=>b.avg-a.avg);
- if(oa.length>=2){const hi=oa[0],lo=oa[oa.length-1];
-   B.push(`运营人效(DM):${oa.map(o=>`${o.op} ${o.nv} 视频/${wan(o.vv)} 播放/单视频均 <b>${wan(o.avg)}</b>`).join(';')}。<b>${hi.op} 单视频效率最高</b>${lo.avg?`,是 ${lo.op} 的 ${(hi.avg/lo.avg).toFixed(1)} 倍`:''}。`);}
+ // 运营人效(按负责人;跨平台不强行算倍数)
+ const opm={}; fvid.forEach(v=>{if(v.operator&&v.operator!=='未分配'){const o=opm[v.operator]=opm[v.operator]||{nv:0,vv:0,plat:v.platform};o.nv++;o.vv+=v.views||0;}});
+ const oa=Object.entries(opm).map(([k,o])=>({op:k,plat:o.plat,nv:o.nv,vv:o.vv,avg:o.nv?o.vv/o.nv:0})).sort((a,b)=>b.avg-a.avg);
+ if(oa.length>=2){const hi=oa[0],lo=oa[oa.length-1], sameP=oa.every(o=>o.plat===oa[0].plat);
+   const top=oa.slice(0,4).map(o=>`${o.op} 单视频均 <b>${wan(o.avg)}</b>`).join(';');
+   B.push(`运营人效:${top}${oa.length>4?' 等':''}。<b>${hi.op} 单视频效率最高</b>${sameP&&lo.avg?`,是 ${lo.op} 的 ${(hi.avg/lo.avg).toFixed(1)} 倍`:''}。`);}
  return B;
 }
 function makeTable(el,cols,rows,opts){
