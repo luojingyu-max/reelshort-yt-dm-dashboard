@@ -44,3 +44,13 @@ jobs:
             n=$((n+1)); if [ $n -ge 4 ]; then echo "surge 部署重试 $n 次仍失败"; exit 1; fi
             echo "surge 部署第 $n 次失败,15s 后重试..."; sleep 15
           done
+      - name: 失败告警(飞书)
+        if: failure()
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+        run: |
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          TEXT=$(printf '看板告警 ❌ refresh-dashboards 跑失败\n仓库: %s\n触发: %s\n时间(UTC): %s\n查看日志: %s' \
+            "$GITHUB_REPOSITORY" "$GITHUB_EVENT_NAME" "$(date -u +'%F %T')" "$RUN_URL")
+          jq -n --arg t "$TEXT" '{msg_type:"text",content:{text:$t}}' \
+            | curl -s -X POST "$FEISHU_WEBHOOK" -H 'Content-Type: application/json' --data @-
