@@ -321,6 +321,8 @@ function render(){
    {h:'评论',num:1,f:r=>fmt(r.comments),s:r=>r.comments||0},
    {h:'点赞率',num:1,f:r=>pct(r.likes,r.views),s:r=>r.views?(r.likes||0)/r.views:0,csv:r=>pctNum(r.likes,r.views)},
  ],fvid.slice().sort((a,b)=>(b.views||0)-(a.views||0)),{pageSize:25,exportName:'videos'});
+
+ vOptions();  // 单视频下拉随平台/频道筛选刷新
 }
 
 const pctNum=(a,b)=>(a==null||!b)?'':(a/b*100).toFixed(2);
@@ -441,7 +443,7 @@ document.addEventListener('click',e=>{const p=document.getElementById('chPanel')
 function vOptions(){
  const q=(document.getElementById('vSearch').value||'').toLowerCase();
  const sel=document.getElementById('vSelect'), cur=sel.value;
- const list=VID.filter(v=>(v.video_title||'').toLowerCase().includes(q))
+ const list=VID.filter(v=>(platform==='all'||v.platform===platform)&&selected.has(key(v))&&(v.video_title||'').toLowerCase().includes(q))
    .sort((a,b)=>(b.views||0)-(a.views||0)).slice(0,300);
  sel.innerHTML=list.map(v=>`<option value="${v.video_id}">${CRAWL[v.video_id]?'★准 ':''}${(v.views||0).toLocaleString()} ▸ ${v.video_title.slice(0,46)} · ${v.channel_title}</option>`).join('')
    || '<option value="">无匹配视频</option>';
