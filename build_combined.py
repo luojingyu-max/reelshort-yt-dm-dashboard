@@ -121,6 +121,9 @@ __CHARTJS__
  .seg button:first-child{border-radius:7px 0 0 7px} .seg button:last-child{border-radius:0 7px 7px 0}
  .seg button.on{background:#5b9dff;color:#fff}
  input[type=date]{background:#0f1115;color:#e6e8eb;border:1px solid #313742;border-radius:6px;padding:6px 8px;font-size:13px}
+ .lfilt{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin:0 0 12px}
+ .lfilt label{font-size:12px;color:#8b929c}
+ .lfilt select{background:#0f1115;color:#e6e8eb;border:1px solid #313742;border-radius:6px;padding:6px 8px;font-size:13px;max-width:260px}
  .btn{background:#262a33;color:#cfd3da;border:1px solid #313742;border-radius:6px;padding:7px 12px;cursor:pointer;font-size:13px}
  .panel{position:absolute;top:64px;left:14px;z-index:20;background:#1a1d24;border:1px solid #313742;border-radius:10px;padding:12px;width:340px;max-height:360px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.5);display:none}
  .panel.open{display:block}
@@ -158,16 +161,7 @@ __CHARTJS__
  <div><label>发布日期</label>
    <input type="date" id="dFrom"> ~ <input type="date" id="dTo">
  </div>
- <button class="btn" id="chBtn">频道 ▾</button>
  <button class="btn" id="resetBtn">重置</button>
- <div class="panel" id="chPanel">
-   <input type="search" id="chSearch" placeholder="搜索频道名…">
-   <div style="display:flex;gap:8px;margin-bottom:6px">
-     <button class="btn" id="selAll" style="flex:1">全选(可见)</button>
-     <button class="btn" id="selNone" style="flex:1">清空(可见)</button>
-   </div>
-   <div id="chList"></div>
- </div>
 </div>
 
 <div class="kpis" id="kpis"></div>
@@ -181,7 +175,7 @@ __CHARTJS__
    <h2 style="margin:0">分日播放(按发布日期)</h2>
    <span class="seg" id="segMode"><button data-m="channel" class="on">Top10 频道</button><button data-m="video">Top10 视频</button></span>
  </div>
- <div class="sub" style="margin-bottom:10px">按视频发布日期聚合的播放量。<b>频道模式</b>:播放最高的 Top10 频道各一条日线;<b>视频模式</b>:Top10 单视频的播放量。用上方"平台/频道/发布日期"筛选可换一批。</div>
+ <div class="sub" style="margin-bottom:10px">按视频发布日期聚合的播放量。<b>频道模式</b>:播放最高的 Top10 频道各一条日线;<b>视频模式</b>:Top10 单视频的播放量。用上方"平台/发布日期"筛选可换一批。</div>
  <canvas id="cDaily" style="max-height:360px"></canvas>
 </div>
 <div class="card">
@@ -195,15 +189,22 @@ __CHARTJS__
 </div>
 <div class="card">
  <h2 id="opTitle">人效比</h2>
- <div class="sub" style="margin-bottom:10px">按负责人聚合(DM 来自 owner.xlsx、YouTube 来自 YouTube账号.xlsx)。<b>单视频均播放</b>是人效核心(产出质量),<b>区间视频数</b>是产出量。「全部」时为双平台汇总对比。受平台/频道/日期筛选联动。</div>
+ <div class="sub" style="margin-bottom:10px">按负责人聚合(DM 来自 owner.xlsx、YouTube 来自 YouTube账号.xlsx)。<b>单视频均播放</b>是人效核心(产出质量),<b>区间视频数</b>是产出量。「全部」时为双平台汇总对比。受平台/日期筛选联动。</div>
  <div class="grid2">
   <div><canvas id="cOpViews"></canvas></div>
   <div><canvas id="cOpAvg"></canvas></div>
  </div>
  <div id="opTable" style="margin-top:14px"></div>
 </div>
-<div class="card"><h2>频道维度</h2><div id="chTable"></div></div>
-<div class="card"><h2>Top 视频(区间内)</h2><div id="vidTable"></div></div>
+<div class="card"><h2>频道维度</h2>
+ <div class="lfilt"><label>负责人</label><select id="chTblOp"></select>
+   <span class="muted" style="font-size:12px">(发布日期用顶部筛选)</span></div>
+ <div id="chTable"></div></div>
+<div class="card"><h2>Top 视频(区间内)</h2>
+ <div class="lfilt"><label>负责人</label><select id="vidTblOp"></select>
+   <label>频道</label><select id="vidTblCh"></select>
+   <span class="muted" style="font-size:12px">(发布日期用顶部筛选)</span></div>
+ <div id="vidTable"></div></div>
 </div>
 <script>
 const CH=__CH__, VID=__VID__, HIST=__HIST__, VHIST=__VHIST__, CRAWL=__CRAWL__, DMIN="__DMIN__", DMAX="__DMAX__";
@@ -213,11 +214,13 @@ const wan=n=>n==null?'—':(n>=10000?(n/10000).toFixed(1)+'万':Math.round(n).to
 const pct=(a,b)=>(a==null||!b)?'<span class=muted>—</span>':(a/b*100).toFixed(2)+'%';
 const key=x=>x.platform+'|'+x.channel_id;
 const tag=p=>`<span class="tag ${p==='YouTube'?'yt':'dm'}">${p==='YouTube'?'YT':'DM'}</span>`;
-let platform='all', dFrom=DMIN, dTo=DMAX, selected=new Set(CH.map(key)), charts={}, chartMode='channel';
+let platform='all', dFrom=DMIN, dTo=DMAX, charts={}, chartMode='channel';
+// 局部筛选(仅作用于对应的表)
+let baseFch=[], baseFvid=[], chTblOp='all', vidTblOp='all', vidTblCh='all';
 
-const chPass=c=>(platform==='all'||c.platform===platform)&&selected.has(key(c));
+const chPass=c=>(platform==='all'||c.platform===platform);
 const vidPass=v=>{const d=(v.published_at||'').slice(0,10);
-  return (platform==='all'||v.platform===platform)&&selected.has(key(v))&&d>=dFrom&&d<=dTo;};
+  return (platform==='all'||v.platform===platform)&&d>=dFrom&&d<=dTo;};
 
 function setChart(id,cfg){ if(charts[id])charts[id].destroy(); charts[id]=new Chart(document.getElementById(id),cfg); }
 const axc={color:'#8b929c'}, grd={color:'#262a33'};
@@ -295,6 +298,16 @@ function render(){
    {h:'点赞率',num:1,f:r=>pct(r.likes,r.views),s:r=>r.views?r.likes/r.views:0,csv:r=>pctNum(r.likes,r.views)},
  ],opArr,{pageSize:25,exportName:'operators'});
 
+ baseFch=fch; baseFvid=fvid;
+ buildLocalFilters();   // 频道维度/Top视频 的局部筛选下拉随平台刷新
+ renderChTable();
+ renderVidTable();
+ vOptions();  // 单视频下拉随平台/发布日期筛选刷新
+}
+
+// 频道维度表(局部:负责人 + 顶部的平台/日期)
+function renderChTable(){
+ const rows=baseFch.filter(c=>chTblOp==='all'||c.operator===chTblOp);
  makeTable(document.getElementById('chTable'),[
    {h:'平台',f:r=>tag(r.platform),s:r=>r.platform},
    {h:'负责人',f:r=>r.operator||'<span class=muted>—</span>',s:r=>r.operator||''},
@@ -307,8 +320,12 @@ function render(){
    {h:'区间均播放',num:1,f:r=>fmt(r._avg),s:r=>r._avg},
    {h:'点赞率',num:1,f:r=>pct(r._likes,r._views),s:r=>r._views?r._likes/r._views:0,csv:r=>pctNum(r._likes,r._views)},
    {h:'评论率',num:1,f:r=>pct(r._comments,r._views),s:r=>r._views?r._comments/r._views:0,csv:r=>pctNum(r._comments,r._views)},
- ],fch.slice().sort((a,b)=>b._views-a._views),{pageSize:25,exportName:'channels'});
+ ],rows.slice().sort((a,b)=>b._views-a._views),{pageSize:25,exportName:'channels'});
+}
 
+// Top视频表(局部:负责人 + 频道 + 顶部的平台/日期)
+function renderVidTable(){
+ const rows=baseFvid.filter(v=>(vidTblOp==='all'||v.operator===vidTblOp)&&(vidTblCh==='all'||key(v)===vidTblCh));
  makeTable(document.getElementById('vidTable'),[
    {h:'平台',f:r=>tag(r.platform),s:r=>r.platform},
    {h:'负责人',f:r=>r.operator||'<span class=muted>—</span>',s:r=>r.operator||''},
@@ -320,9 +337,27 @@ function render(){
    {h:'点赞',num:1,f:r=>fmt(r.likes),s:r=>r.likes||0},
    {h:'评论',num:1,f:r=>fmt(r.comments),s:r=>r.comments||0},
    {h:'点赞率',num:1,f:r=>pct(r.likes,r.views),s:r=>r.views?(r.likes||0)/r.views:0,csv:r=>pctNum(r.likes,r.views)},
- ],fvid.slice().sort((a,b)=>(b.views||0)-(a.views||0)),{pageSize:25,exportName:'videos'});
+ ],rows.slice().sort((a,b)=>(b.views||0)-(a.views||0)),{pageSize:25,exportName:'videos'});
+}
 
- vOptions();  // 单视频下拉随平台/频道筛选刷新
+// 局部筛选下拉:负责人(两表)+ 频道(仅Top视频),随平台刷新、保留仍有效的选择
+function buildLocalFilters(){
+ const groups=platform==='all'?['YouTube','Dailymotion']:[platform];
+ const set=new Set();
+ CH.forEach(c=>{if(groups.includes(c.platform)&&c.operator)set.add(c.operator);});
+ const ops=[...set].sort((a,b)=>a==='未分配'?1:b==='未分配'?-1:a.localeCompare(b,'zh'));
+ const opHtml='<option value="all">全部负责人</option>'+ops.map(o=>`<option value="${o}">${o}</option>`).join('');
+ const so=document.getElementById('chTblOp'); if(!ops.includes(chTblOp))chTblOp='all'; so.innerHTML=opHtml; so.value=chTblOp;
+ const vo=document.getElementById('vidTblOp'); if(!ops.includes(vidTblOp))vidTblOp='all'; vo.innerHTML=opHtml; vo.value=vidTblOp;
+ let chHtml='<option value="all">全部频道</option>';
+ groups.forEach(p=>{
+   const list=CH.filter(c=>c.platform===p).slice().sort((a,b)=>a.title.localeCompare(b.title,'zh'));
+   if(!list.length)return;
+   chHtml+=`<optgroup label="${p}">`+list.map(c=>`<option value="${key(c)}">${c.title}</option>`).join('')+'</optgroup>';
+ });
+ const vc=document.getElementById('vidTblCh');
+ if(!(vidTblCh==='all'||CH.some(c=>key(c)===vidTblCh&&groups.includes(c.platform))))vidTblCh='all';
+ vc.innerHTML=chHtml; vc.value=vidTblCh;
 }
 
 const pctNum=(a,b)=>(a==null||!b)?'':(a/b*100).toFixed(2);
@@ -394,56 +429,29 @@ function makeTable(el,cols,rows,opts){
  el.innerHTML=''; el.appendChild(bar); el.appendChild(t); draw();
 }
 
-// ---- 频道筛选面板 ----
-function buildList(){
- const q=(document.getElementById('chSearch').value||'').toLowerCase();
- const groups=platform==='all'?['YouTube','Dailymotion']:[platform];
- let html='';
- groups.forEach(p=>{
-   const list=CH.filter(c=>c.platform===p&&c.title.toLowerCase().includes(q));
-   if(!list.length)return;
-   html+=`<div class=grp>${p} (${list.length})</div>`;
-   list.forEach(c=>{const k=key(c);
-     html+=`<div class=row><input type=checkbox data-k="${k}" ${selected.has(k)?'checked':''}><label>${c.title}</label></div>`;});
- });
- const el=document.getElementById('chList'); el.innerHTML=html;
- el.querySelectorAll('input[type=checkbox]').forEach(cb=>cb.onchange=()=>{
-   cb.checked?selected.add(cb.dataset.k):selected.delete(cb.dataset.k); updateChBtn(); render();});
-}
-function visibleKeys(){
- const q=(document.getElementById('chSearch').value||'').toLowerCase();
- const groups=platform==='all'?['YouTube','Dailymotion']:[platform];
- return CH.filter(c=>groups.includes(c.platform)&&c.title.toLowerCase().includes(q)).map(key);
-}
-function updateChBtn(){const tot=platform==='all'?CH.length:CH.filter(c=>c.platform===platform).length;
- const sel=CH.filter(c=>(platform==='all'||c.platform===platform)&&selected.has(key(c))).length;
- document.getElementById('chBtn').textContent=`频道 ${sel}/${tot} ▾`;}
-
 // 事件
 document.getElementById('segPlat').onclick=e=>{if(e.target.tagName!=='BUTTON')return;
  [...e.currentTarget.children].forEach(b=>b.classList.remove('on')); e.target.classList.add('on');
- platform=e.target.dataset.p; buildList(); updateChBtn(); render();};
+ platform=e.target.dataset.p; render();};
 document.getElementById('segMode').onclick=e=>{if(e.target.tagName!=='BUTTON')return;
  [...e.currentTarget.children].forEach(b=>b.classList.remove('on')); e.target.classList.add('on');
  chartMode=e.target.dataset.m; render();};
 document.getElementById('dFrom').onchange=e=>{dFrom=e.target.value||DMIN; render();};
 document.getElementById('dTo').onchange=e=>{dTo=e.target.value||DMAX; render();};
-document.getElementById('chBtn').onclick=()=>document.getElementById('chPanel').classList.toggle('open');
-document.getElementById('chSearch').oninput=buildList;
-document.getElementById('selAll').onclick=()=>{visibleKeys().forEach(k=>selected.add(k));buildList();updateChBtn();render();};
-document.getElementById('selNone').onclick=()=>{visibleKeys().forEach(k=>selected.delete(k));buildList();updateChBtn();render();};
-document.getElementById('resetBtn').onclick=()=>{platform='all';selected=new Set(CH.map(key));dFrom=DMIN;dTo=DMAX;
+// 局部筛选只重绘对应的表
+document.getElementById('chTblOp').onchange=e=>{chTblOp=e.target.value; renderChTable();};
+document.getElementById('vidTblOp').onchange=e=>{vidTblOp=e.target.value; renderVidTable();};
+document.getElementById('vidTblCh').onchange=e=>{vidTblCh=e.target.value; renderVidTable();};
+document.getElementById('resetBtn').onclick=()=>{platform='all';chTblOp='all';vidTblOp='all';vidTblCh='all';dFrom=DMIN;dTo=DMAX;
  [...document.getElementById('segPlat').children].forEach((b,i)=>b.classList.toggle('on',i===0));
  document.getElementById('dFrom').value=DMIN;document.getElementById('dTo').value=DMAX;
- buildList();updateChBtn();render();};
-document.addEventListener('click',e=>{const p=document.getElementById('chPanel'),b=document.getElementById('chBtn');
- if(p.classList.contains('open')&&!p.contains(e.target)&&e.target!==b)p.classList.remove('open');});
+ render();};
 
 // ---- 单视频每日趋势 ----
 function vOptions(){
  const q=(document.getElementById('vSearch').value||'').toLowerCase();
  const sel=document.getElementById('vSelect'), cur=sel.value;
- const list=VID.filter(v=>(platform==='all'||v.platform===platform)&&selected.has(key(v))&&(v.video_title||'').toLowerCase().includes(q))
+ const list=VID.filter(v=>(platform==='all'||v.platform===platform)&&(v.video_title||'').toLowerCase().includes(q))
    .sort((a,b)=>(b.views||0)-(a.views||0)).slice(0,300);
  sel.innerHTML=list.map(v=>`<option value="${v.video_id}">${CRAWL[v.video_id]?'★准 ':''}${(v.views||0).toLocaleString()} ▸ ${v.video_title.slice(0,46)} · ${v.channel_title}</option>`).join('')
    || '<option value="">无匹配视频</option>';
@@ -482,7 +490,7 @@ document.getElementById('vSelect').onchange=drawVid;
 // init
 document.getElementById('dFrom').value=DMIN; document.getElementById('dFrom').min=DMIN; document.getElementById('dFrom').max=DMAX;
 document.getElementById('dTo').value=DMAX; document.getElementById('dTo').min=DMIN; document.getElementById('dTo').max=DMAX;
-buildList(); updateChBtn(); render(); vOptions();
+render();
 </script></body></html>"""
 
 if __name__ == "__main__":
