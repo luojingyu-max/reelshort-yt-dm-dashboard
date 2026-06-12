@@ -78,6 +78,15 @@ def main():
     if vp.exists():
         for r in csv.DictReader(open(vp)):
             vhist.setdefault(r["video_id"], []).append([r["date"], to_int(r.get("views")) or 0])
+    # DM 爬虫口径(Studio 准数 + 真实日增,按 video_id 串联)dm_crawler_daily.csv
+    crawl = {}
+    cp = HERE / "dm_crawler_daily.csv"
+    if cp.exists():
+        for r in csv.DictReader(open(cp)):
+            vid = r.get("video_id")
+            if not vid: continue
+            crawl.setdefault(vid, []).append([r["date"], to_int(r.get("total_views")), to_int(r.get("day_views"))])
+    for k in crawl: crawl[k].sort(key=lambda x: x[0])
 
     libf = HERE / "chart.umd.min.js"
     chartjs = ("<script>"+libf.read_text(encoding="utf-8")+"</script>") if libf.exists() \
@@ -90,7 +99,8 @@ def main():
             .replace("__CH__", json.dumps(channels, ensure_ascii=False))
             .replace("__VID__", json.dumps(videos, ensure_ascii=False))
             .replace("__HIST__", json.dumps(hist, ensure_ascii=False))
-            .replace("__VHIST__", json.dumps(vhist, ensure_ascii=False)))
+            .replace("__VHIST__", json.dumps(vhist, ensure_ascii=False))
+            .replace("__CRAWL__", json.dumps(crawl, ensure_ascii=False)))
     out = HERE / "combined_site" / "index.html"
     out.parent.mkdir(exist_ok=True)
     out.write_text(html, encoding="utf-8")
@@ -176,7 +186,7 @@ __CHARTJS__
 </div>
 <div class="card">
  <h2>单视频每日趋势(搜索选择)</h2>
- <div class="sub" style="margin-bottom:10px">每日快照累积,从今天起逐日生长(历史无法回填)。搜索标题选一条,看它的累计播放与当日新增。</div>
+ <div class="sub" style="margin-bottom:10px">标 <b>★准</b> 的视频用爬虫口径(Studio 准数 + 真实当日新增 + 历史);其余为公开 API 快照(从今日起逐日累积)。搜索标题选一条。</div>
  <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
   <input type="search" id="vSearch" placeholder="搜索视频标题…" style="flex:1;min-width:220px;background:#0f1115;color:#e6e8eb;border:1px solid #313742;border-radius:6px;padding:7px 10px">
   <select id="vSelect" style="flex:2;min-width:280px;background:#0f1115;color:#e6e8eb;border:1px solid #313742;border-radius:6px;padding:7px 10px"></select>
@@ -196,7 +206,7 @@ __CHARTJS__
 <div class="card"><h2>Top 视频(区间内)</h2><div id="vidTable"></div></div>
 </div>
 <script>
-const CH=__CH__, VID=__VID__, HIST=__HIST__, VHIST=__VHIST__, DMIN="__DMIN__", DMAX="__DMAX__";
+const CH=__CH__, VID=__VID__, HIST=__HIST__, VHIST=__VHIST__, CRAWL=__CRAWL__, DMIN="__DMIN__", DMAX="__DMAX__";
 const PALETTE=['#5b9dff','#5bd1a0','#f7b955','#e06c75','#b18cff','#56c2d6','#d49bd4','#9aa7b5'];
 const fmt=n=>n==null?'<span class=muted>—</span>':Number(n).toLocaleString();
 const wan=n=>n==null?'—':(n>=10000?(n/10000).toFixed(1)+'万':Math.round(n).toLocaleString());
@@ -433,26 +443,34 @@ function vOptions(){
  const sel=document.getElementById('vSelect'), cur=sel.value;
  const list=VID.filter(v=>(v.video_title||'').toLowerCase().includes(q))
    .sort((a,b)=>(b.views||0)-(a.views||0)).slice(0,300);
- sel.innerHTML=list.map(v=>`<option value="${v.video_id}">${(v.views||0).toLocaleString()} ▸ ${v.video_title.slice(0,46)} · ${v.channel_title}</option>`).join('')
+ sel.innerHTML=list.map(v=>`<option value="${v.video_id}">${CRAWL[v.video_id]?'★准 ':''}${(v.views||0).toLocaleString()} ▸ ${v.video_title.slice(0,46)} · ${v.channel_title}</option>`).join('')
    || '<option value="">无匹配视频</option>';
  if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
- else { // 默认选历史点最多的(优先能看出趋势的视频)
+ else { // 默认优先选有爬虫数据(★准)且历史最多的,否则快照最多的
    let best='',bn=-1;
-   for(const o of sel.options){const n=(VHIST[o.value]||[]).length; if(n>bn){bn=n;best=o.value;}}
+   for(const o of sel.options){const c=CRAWL[o.value]; const n=c?1000+c.length:(VHIST[o.value]||[]).length; if(n>bn){bn=n;best=o.value;}}
    if(best) sel.value=best;
  }
  drawVid();
 }
 function drawVid(){
  const id=document.getElementById('vSelect').value;
- const ser=(VHIST[id]||[]).slice().sort((a,b)=>a[0]<b[0]?-1:1);
- const labels=ser.map(x=>x[0]), views=ser.map(x=>x[1]);
- const delta=views.map((v,i)=>i===0?null:v-views[i-1]);
- const hint=ser.length<2?`该视频暂仅 ${ser.length} 天快照,趋势将逐日生长(新纳入的频道从今日起累积)`:'';
+ let labels, views, delta, hint, isCrawl=false;
+ const cr=CRAWL[id];
+ if(cr&&cr.length){
+   const s=cr.slice().sort((a,b)=>a[0]<b[0]?-1:1);
+   labels=s.map(x=>x[0]); views=s.map(x=>x[1]); delta=s.map(x=>x[2]);
+   hint='★ 爬虫口径:Studio 准数 + 真实当日新增 + 历史'; isCrawl=true;
+ } else {
+   const s=(VHIST[id]||[]).slice().sort((a,b)=>a[0]<b[0]?-1:1);
+   labels=s.map(x=>x[0]); views=s.map(x=>x[1]);
+   delta=views.map((v,i)=>i===0?null:v-views[i-1]);
+   hint=s.length<2?`公开口径·暂仅 ${s.length} 天快照,趋势将逐日生长`:'公开 API 口径(偏低;此视频不在爬虫覆盖内)';
+ }
  setChart('cVid',{data:{labels,datasets:[
    {type:'line',label:'累计播放',data:views,borderColor:'#5bd1a0',backgroundColor:'rgba(91,209,160,.15)',fill:true,tension:.35,pointRadius:3,yAxisID:'y'},
    {type:'bar',label:'当日新增',data:delta,backgroundColor:'rgba(91,157,255,.7)',yAxisID:'y1'}
- ]},options:{plugins:{legend:{labels:{color:'#8b929c',boxWidth:12}},title:{display:!!hint,text:hint,color:'#f7b955',font:{size:13}}},
+ ]},options:{plugins:{legend:{labels:{color:'#8b929c',boxWidth:12}},title:{display:!!hint,text:hint,color:isCrawl?'#5bd1a0':'#f7b955',font:{size:13}}},
    scales:{x:{ticks:axc},y:{position:'left',ticks:axc,grid:grd,title:{display:true,text:'累计播放',color:'#8b929c'}},
    y1:{position:'right',ticks:axc,grid:{drawOnChartArea:false},title:{display:true,text:'当日新增',color:'#8b929c'}}}}});
 }
