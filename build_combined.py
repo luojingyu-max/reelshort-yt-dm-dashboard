@@ -124,6 +124,11 @@ __CHARTJS__
  .lfilt{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin:0 0 12px}
  .lfilt label{font-size:12px;color:#8b929c}
  .lfilt select{background:#0f1115;color:#e6e8eb;border:1px solid #313742;border-radius:6px;padding:6px 8px;font-size:13px;max-width:260px}
+ .ms{position:relative;display:inline-block}
+ .ms-panel{position:absolute;top:38px;left:0;z-index:30;background:#1a1d24;border:1px solid #313742;border-radius:8px;padding:8px;min-width:170px;max-height:300px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.5);display:none}
+ .ms-panel.open{display:block}
+ .ms-panel .row{display:flex;align-items:center;gap:6px;padding:3px 4px;font-size:13px;white-space:nowrap;color:#e6e8eb;cursor:pointer;margin:0}
+ .ms-panel hr{border:0;border-top:1px solid #262a33;margin:6px 0}
  .btn{background:#262a33;color:#cfd3da;border:1px solid #313742;border-radius:6px;padding:7px 12px;cursor:pointer;font-size:13px}
  .panel{position:absolute;top:64px;left:14px;z-index:20;background:#1a1d24;border:1px solid #313742;border-radius:10px;padding:12px;width:340px;max-height:360px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.5);display:none}
  .panel.open{display:block}
@@ -197,13 +202,15 @@ __CHARTJS__
  <div id="opTable" style="margin-top:14px"></div>
 </div>
 <div class="card"><h2>频道维度</h2>
- <div class="lfilt"><label>负责人</label><select id="chTblOp"></select>
-   <span class="muted" style="font-size:12px">(发布日期用顶部筛选)</span></div>
+ <div class="lfilt"><label>负责人</label>
+   <div class="ms" id="chOpMs"><button class="btn ms-btn" type="button" data-label="负责人">负责人 ▾</button><div class="ms-panel"></div></div>
+   <span class="muted" style="font-size:12px">(可多选 · 发布日期用顶部筛选)</span></div>
  <div id="chTable"></div></div>
 <div class="card"><h2>Top 视频(区间内)</h2>
- <div class="lfilt"><label>负责人</label><select id="vidTblOp"></select>
+ <div class="lfilt"><label>负责人</label>
+   <div class="ms" id="vidOpMs"><button class="btn ms-btn" type="button" data-label="负责人">负责人 ▾</button><div class="ms-panel"></div></div>
    <label>频道</label><select id="vidTblCh"></select>
-   <span class="muted" style="font-size:12px">(发布日期用顶部筛选)</span></div>
+   <span class="muted" style="font-size:12px">(可多选 · 发布日期用顶部筛选)</span></div>
  <div id="vidTable"></div></div>
 </div>
 <script>
@@ -216,7 +223,7 @@ const key=x=>x.platform+'|'+x.channel_id;
 const tag=p=>`<span class="tag ${p==='YouTube'?'yt':'dm'}">${p==='YouTube'?'YT':'DM'}</span>`;
 let platform='all', dFrom=DMIN, dTo=DMAX, charts={}, chartMode='channel';
 // 局部筛选(仅作用于对应的表)
-let baseFch=[], baseFvid=[], chTblOp='all', vidTblOp='all', vidTblCh='all';
+let baseFch=[], baseFvid=[], chTblOps=new Set(), vidTblOps=new Set(), vidTblCh='all';
 
 const chPass=c=>(platform==='all'||c.platform===platform);
 const vidPass=v=>{const d=(v.published_at||'').slice(0,10);
@@ -307,7 +314,7 @@ function render(){
 
 // 频道维度表(局部:负责人 + 顶部的平台/日期)
 function renderChTable(){
- const rows=baseFch.filter(c=>chTblOp==='all'||c.operator===chTblOp);
+ const rows=baseFch.filter(c=>chTblOps.size===0||chTblOps.has(c.operator));
  makeTable(document.getElementById('chTable'),[
    {h:'平台',f:r=>tag(r.platform),s:r=>r.platform},
    {h:'负责人',f:r=>r.operator||'<span class=muted>—</span>',s:r=>r.operator||''},
@@ -325,7 +332,7 @@ function renderChTable(){
 
 // Top视频表(局部:负责人 + 频道 + 顶部的平台/日期)
 function renderVidTable(){
- const rows=baseFvid.filter(v=>(vidTblOp==='all'||v.operator===vidTblOp)&&(vidTblCh==='all'||key(v)===vidTblCh));
+ const rows=baseFvid.filter(v=>(vidTblOps.size===0||vidTblOps.has(v.operator))&&(vidTblCh==='all'||key(v)===vidTblCh));
  makeTable(document.getElementById('vidTable'),[
    {h:'平台',f:r=>tag(r.platform),s:r=>r.platform},
    {h:'负责人',f:r=>r.operator||'<span class=muted>—</span>',s:r=>r.operator||''},
@@ -346,9 +353,8 @@ function buildLocalFilters(){
  const set=new Set();
  CH.forEach(c=>{if(groups.includes(c.platform)&&c.operator)set.add(c.operator);});
  const ops=[...set].sort((a,b)=>a==='未分配'?1:b==='未分配'?-1:a.localeCompare(b,'zh'));
- const opHtml='<option value="all">全部负责人</option>'+ops.map(o=>`<option value="${o}">${o}</option>`).join('');
- const so=document.getElementById('chTblOp'); if(!ops.includes(chTblOp))chTblOp='all'; so.innerHTML=opHtml; so.value=chTblOp;
- const vo=document.getElementById('vidTblOp'); if(!ops.includes(vidTblOp))vidTblOp='all'; vo.innerHTML=opHtml; vo.value=vidTblOp;
+ buildMultiSel('chOpMs',ops,chTblOps,renderChTable);
+ buildMultiSel('vidOpMs',ops,vidTblOps,renderVidTable);
  let chHtml='<option value="all">全部频道</option>';
  groups.forEach(p=>{
    const list=CH.filter(c=>c.platform===p).slice().sort((a,b)=>a.title.localeCompare(b.title,'zh'));
@@ -358,6 +364,23 @@ function buildLocalFilters(){
  const vc=document.getElementById('vidTblCh');
  if(!(vidTblCh==='all'||CH.some(c=>key(c)===vidTblCh&&groups.includes(c.platform))))vidTblCh='all';
  vc.innerHTML=chHtml; vc.value=vidTblCh;
+}
+
+// 多选下拉(selSet 为空=全部);随平台重建,剔除失效项
+function buildMultiSel(wrapId, options, selSet, onChange){
+ const wrap=document.getElementById(wrapId);
+ const btn=wrap.querySelector('.ms-btn'), panel=wrap.querySelector('.ms-panel');
+ [...selSet].forEach(v=>{if(!options.includes(v))selSet.delete(v);});
+ const refresh=()=>btn.textContent=`${btn.dataset.label}:${selSet.size===0?'全部':selSet.size+'项'} ▾`;
+ panel.innerHTML='<label class=row><input type=checkbox class=ms-all '+(selSet.size===0?'checked':'')+'> 全部</label><hr>'
+   +options.map(o=>`<label class=row><input type=checkbox value="${o}" ${selSet.has(o)?'checked':''}> ${o}</label>`).join('');
+ panel.querySelector('.ms-all').onchange=()=>{selSet.clear();
+   panel.querySelectorAll('input[value]').forEach(cb=>cb.checked=false);
+   panel.querySelector('.ms-all').checked=true; refresh(); onChange();};
+ panel.querySelectorAll('input[value]').forEach(cb=>cb.onchange=()=>{
+   cb.checked?selSet.add(cb.value):selSet.delete(cb.value);
+   panel.querySelector('.ms-all').checked=selSet.size===0; refresh(); onChange();});
+ refresh();
 }
 
 const pctNum=(a,b)=>(a==null||!b)?'':(a/b*100).toFixed(2);
@@ -439,10 +462,14 @@ document.getElementById('segMode').onclick=e=>{if(e.target.tagName!=='BUTTON')re
 document.getElementById('dFrom').onchange=e=>{dFrom=e.target.value||DMIN; render();};
 document.getElementById('dTo').onchange=e=>{dTo=e.target.value||DMAX; render();};
 // 局部筛选只重绘对应的表
-document.getElementById('chTblOp').onchange=e=>{chTblOp=e.target.value; renderChTable();};
-document.getElementById('vidTblOp').onchange=e=>{vidTblOp=e.target.value; renderVidTable();};
 document.getElementById('vidTblCh').onchange=e=>{vidTblCh=e.target.value; renderVidTable();};
-document.getElementById('resetBtn').onclick=()=>{platform='all';chTblOp='all';vidTblOp='all';vidTblCh='all';dFrom=DMIN;dTo=DMAX;
+document.querySelectorAll('.ms-btn').forEach(btn=>btn.onclick=e=>{e.stopPropagation();
+ const panel=btn.parentElement.querySelector('.ms-panel'), open=panel.classList.contains('open');
+ document.querySelectorAll('.ms-panel.open').forEach(p=>p.classList.remove('open'));
+ if(!open)panel.classList.add('open');});
+document.addEventListener('click',e=>{document.querySelectorAll('.ms-panel.open').forEach(p=>{
+ if(!p.closest('.ms').contains(e.target))p.classList.remove('open');});});
+document.getElementById('resetBtn').onclick=()=>{platform='all';chTblOps.clear();vidTblOps.clear();vidTblCh='all';dFrom=DMIN;dTo=DMAX;
  [...document.getElementById('segPlat').children].forEach((b,i)=>b.classList.toggle('on',i===0));
  document.getElementById('dFrom').value=DMIN;document.getElementById('dTo').value=DMAX;
  render();};
