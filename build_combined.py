@@ -88,9 +88,9 @@ def main():
             crawl.setdefault(vid, []).append([r["date"], to_int(r.get("total_views")), to_int(r.get("day_views"))])
     for k in crawl: crawl[k].sort(key=lambda x: x[0])
 
-    libf = HERE / "chart.umd.min.js"
-    chartjs = ("<script>"+libf.read_text(encoding="utf-8")+"</script>") if libf.exists() \
-              else '<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>'
+    # chart.js 始终走 CDN 外链(不再内联 205KB),减小单文件体积、降低 surge 传输被掐断的概率;
+    # 浏览器还能跨站缓存 jsdelivr。pinned 到 4.4.1 与本地 chart.umd.min.js 版本一致,避免大版本漂移。
+    chartjs = '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>'
 
     html = (TEMPLATE
             .replace("__CHARTJS__", chartjs)
