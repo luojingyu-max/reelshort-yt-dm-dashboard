@@ -9,9 +9,14 @@ on:
   workflow_dispatch:            # 也支持手动点一下立即跑
 permissions:
   contents: write               # 需要把每日快照 history/ 提交回仓库
+  pages: write                  # 部署 GitHub Pages
+  id-token: write               # Pages 部署用 OIDC
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,7 +39,19 @@ jobs:
           git add history/ base_tables/
           git diff --cached --quiet || git commit -m "chore: daily snapshot + base tables $(date -u +%F)"
           git push
-      - name: Deploy to Surge
+      # —— 主托管:GitHub Pages(surge 传 4MB 单文件会中途掐连接,已迁走)——
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./combined_site
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+      # —— 过渡兜底:仍推一份到 surge(失败不影响整个 run)——
+      - name: Deploy to Surge (过渡兜底)
+        continue-on-error: true
         env:
           SURGE_LOGIN: ${{ secrets.SURGE_LOGIN }}
           SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
