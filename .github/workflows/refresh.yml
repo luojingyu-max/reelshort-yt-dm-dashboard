@@ -26,9 +26,11 @@ jobs:
       - name: Fetch data + daily snapshot + build
         env:
           YT_API_KEY: ${{ secrets.YT_API_KEY }}
+          REVENUE_API_TOKEN: ${{ secrets.REVENUE_API_TOKEN }}
         run: |
           python3 yt_report.py --file channel_ids.txt --out yt_site/index.html
           python3 dm_report.py --file dm_ids.txt --out yt_site_dm/index.html
+          python3 revenue_report.py --start 2026-01-01
           python3 snapshot.py
           python3 build_combined.py
           python3 make_base_tables.py

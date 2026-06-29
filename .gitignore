@@ -1,0 +1,11 @@
+# 运行时生成的中间产物(Action 每次重新抓数/构建生成,不入库)
+channels.csv
+videos.csv
+dm_channels.csv
+dm_videos.csv
+revenue_daily.csv
+combined_site/
+yt_site/
+yt_site_dm/
+
+# 注意: history/ 与 base_tables/ 是需要入库的(Action 会提交每日快照)

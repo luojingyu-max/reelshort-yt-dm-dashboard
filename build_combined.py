@@ -61,7 +61,21 @@ def main():
     for v in videos:
         v["operator"] = opmap.get((v["platform"], v["channel_id"]), "")
 
-    dates = sorted(v["published_at"][:10] for v in videos if v.get("published_at"))
+    # YouTube 预估收益(按天×频道) revenue_daily.csv -> {channel_id: [[date, rev], ...]}
+    rev = {}
+    rev_dates = []
+    rvp = HERE / "revenue_daily.csv"
+    if rvp.exists():
+        for r in csv.DictReader(open(rvp)):
+            cid = r.get("channel_id"); dt = (r.get("date") or "")[:10]
+            if not cid or not dt: continue
+            try: amt = float(r.get("estimated_revenue") or 0)
+            except (TypeError, ValueError): amt = 0.0
+            rev.setdefault(cid, []).append([dt, amt]); rev_dates.append(dt)
+    for k in rev: rev[k].sort(key=lambda x: x[0])
+
+    # 默认日期范围要同时覆盖「视频发布日」与「收益日」,否则最新收益会被默认筛选挡掉
+    dates = sorted([v["published_at"][:10] for v in videos if v.get("published_at")] + rev_dates)
     dmin = dates[0] if dates else "2020-01-01"
     dmax = dates[-1] if dates else datetime.date.today().isoformat()
 
@@ -100,7 +114,8 @@ def main():
             .replace("__VID__", json.dumps(videos, ensure_ascii=False))
             .replace("__HIST__", json.dumps(hist, ensure_ascii=False))
             .replace("__VHIST__", json.dumps(vhist, ensure_ascii=False))
-            .replace("__CRAWL__", json.dumps(crawl, ensure_ascii=False)))
+            .replace("__CRAWL__", json.dumps(crawl, ensure_ascii=False))
+            .replace("__REV__", json.dumps(rev, ensure_ascii=False)))
     out = HERE / "combined_site" / "index.html"
     out.parent.mkdir(exist_ok=True)
     out.write_text(html, encoding="utf-8")
@@ -136,7 +151,7 @@ __CHARTJS__
  .panel .grp{color:#8b929c;font-size:11px;margin:8px 0 4px;text-transform:uppercase}
  .panel .row{display:flex;align-items:center;gap:6px;padding:3px 2px;font-size:13px}
  .panel .row label{color:#e6e8eb;margin:0;cursor:pointer;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
- .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+ .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:22px}
  .kpi{background:#1a1d24;border:1px solid #262a33;border-radius:10px;padding:16px}
  .kpi .v{font-size:24px;font-weight:700} .kpi .l{color:#8b929c;font-size:12px;margin-top:4px}
  .card{background:#1a1d24;border:1px solid #262a33;border-radius:10px;padding:16px;margin-bottom:20px}
@@ -183,6 +198,14 @@ __CHARTJS__
  <div class="sub" style="margin-bottom:10px">按视频发布日期聚合的播放量。<b>频道模式</b>:播放最高的 Top10 频道各一条日线;<b>视频模式</b>:Top10 单视频的播放量。用上方"平台/发布日期"筛选可换一批。</div>
  <canvas id="cDaily" style="max-height:360px"></canvas>
 </div>
+<div class="card" id="revCard">
+ <h2>YouTube 预估收益(已授权频道)</h2>
+ <div class="sub" style="margin-bottom:10px">来自服务端授权接口的 estimated_revenue(USD),按天×频道。受上方"发布日期"区间联动(此处按<b>收益日期</b>累计)。收益数据一般 T+2~3 到账,故最新一两天可能偏低。仅 YouTube 有此数据。</div>
+ <div class="grid2">
+  <div><canvas id="cRev"></canvas></div>
+  <div><canvas id="cRevOp"></canvas></div>
+ </div>
+</div>
 <div class="card">
  <h2>单视频每日趋势(搜索选择)</h2>
  <div class="sub" style="margin-bottom:10px">标 <b>★准</b> 的视频用爬虫口径(Studio 准数 + 真实当日新增 + 历史);其余为公开 API 快照(从今日起逐日累积)。搜索标题选一条。</div>
@@ -214,7 +237,8 @@ __CHARTJS__
  <div id="vidTable"></div></div>
 </div>
 <script>
-const CH=__CH__, VID=__VID__, HIST=__HIST__, VHIST=__VHIST__, CRAWL=__CRAWL__, DMIN="__DMIN__", DMAX="__DMAX__";
+const CH=__CH__, VID=__VID__, HIST=__HIST__, VHIST=__VHIST__, CRAWL=__CRAWL__, REV=__REV__, DMIN="__DMIN__", DMAX="__DMAX__";
+const usd=n=>n==null?'<span class=muted>—</span>':'$'+Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 const PALETTE=['#5b9dff','#5bd1a0','#f7b955','#e06c75','#b18cff','#56c2d6','#d49bd4','#9aa7b5'];
 const fmt=n=>n==null?'<span class=muted>—</span>':Number(n).toLocaleString();
 const wan=n=>n==null?'—':(n>=10000?(n/10000).toFixed(1)+'万':Math.round(n).toLocaleString());
@@ -241,13 +265,17 @@ function render(){
    c._comments=vs.reduce((s,v)=>s+(v.comments||0),0);
    c._avg=vs.length?Math.round(c._views/vs.length):0;
    c._top=vs.slice().sort((a,b)=>(b.views||0)-(a.views||0))[0];});
+ // 各频道区间预估收益(按收益日期落在 [dFrom,dTo] 累计;仅 YouTube)
+ fch.forEach(c=>{ c._rev = c.platform==='YouTube'
+   ? (REV[c.channel_id]||[]).reduce((s,a)=>s+(a[0]>=dFrom&&a[0]<=dTo?a[1]:0),0) : 0; });
 
  // KPI
  const sum=(a,k)=>a.reduce((s,x)=>s+(x[k]||0),0);
  document.getElementById('kpis').innerHTML=[
   ['频道数',fch.length],['区间视频数',fvid.length],
   ['总订阅/粉丝(累计)',sum(fch,'subscribers')],['区间播放合计',sum(fvid,'views')],
- ].map(([l,v])=>`<div class=kpi><div class=v>${v.toLocaleString()}</div><div class=l>${l}</div></div>`).join('');
+  ['区间预估收益',sum(fch,'_rev'),usd],
+ ].map(([l,v,f])=>`<div class=kpi><div class=v>${f?f(v):v.toLocaleString()}</div><div class=l>${l}</div></div>`).join('');
  document.getElementById('insights').innerHTML=buildInsights(fch,fvid).map(b=>`<li>${b}</li>`).join('');
 
  // bar: subscribers (lifetime) top20
@@ -280,11 +308,21 @@ function render(){
        scales:{x:{ticks:axc,grid:grd},y:{ticks:{...axc,autoSkip:false}}}}});
  }
 
+ // 日预估收益趋势(选中 YouTube 频道按收益日汇总)
+ const revDays={};
+ fch.forEach(c=>{ if(c.platform!=='YouTube') return;
+   (REV[c.channel_id]||[]).forEach(a=>{ if(a[0]>=dFrom&&a[0]<=dTo) revDays[a[0]]=(revDays[a[0]]||0)+a[1]; }); });
+ const rDates=Object.keys(revDays).sort();
+ setChart('cRev',{type:'line',data:{labels:rDates,datasets:[{label:'日预估收益($)',
+   data:rDates.map(d=>+revDays[d].toFixed(2)),borderColor:'#5bd1a0',backgroundColor:'#5bd1a0',tension:.3,pointRadius:1,fill:false}]},
+   options:{plugins:{legend:{display:false},title:{display:true,text:'日预估收益趋势($)',color:'#cdd2d9'}},
+     scales:{x:{ticks:axc},y:{ticks:axc,grid:grd}}}});
+
  // tables
  // 人效比(按负责人聚合;全部=双平台汇总对比)
- const ops={}, ens=o=>ops[o]=ops[o]||{op:o,plat:'',nc:0,nv:0,views:0,likes:0};
+ const ops={}, ens=o=>ops[o]=ops[o]||{op:o,plat:'',nc:0,nv:0,views:0,likes:0,rev:0};
  const setp=(o,p)=>o.plat=(o.plat===''?p:(o.plat===p?o.plat:'混合'));
- fch.forEach(c=>{if(c.operator){const o=ens(c.operator); o.nc++; setp(o,c.platform);}});
+ fch.forEach(c=>{if(c.operator){const o=ens(c.operator); o.nc++; o.rev+=c._rev||0; setp(o,c.platform);}});
  fvid.forEach(v=>{if(v.operator){const o=ens(v.operator); o.nv++; o.views+=v.views||0; o.likes+=v.likes||0; setp(o,v.platform);}});
  const opArr=Object.values(ops).sort((a,b)=>b.views-a.views);
  opArr.forEach(o=>o.avg=o.nv?Math.round(o.views/o.nv):0);
@@ -294,12 +332,18 @@ function render(){
    options:{plugins:{legend:{display:false},title:{display:true,text:'各负责人 · 区间播放合计',color:'#cdd2d9'}},scales:{x:{ticks:axc},y:{ticks:axc,grid:grd}}}});
  setChart('cOpAvg',{type:'bar',data:{labels:opL,datasets:[{data:opArr.map(o=>o.avg),backgroundColor:opColor}]},
    options:{plugins:{legend:{display:false},title:{display:true,text:'各负责人 · 单视频均播放(人效)',color:'#cdd2d9'}},scales:{x:{ticks:axc},y:{ticks:axc,grid:grd}}}});
+ // 各负责人 · 区间预估收益(画在收益卡片的 cRevOp)
+ const opR=opArr.slice().sort((a,b)=>(b.rev||0)-(a.rev||0));
+ setChart('cRevOp',{type:'bar',data:{labels:opR.map(o=>o.op),datasets:[{data:opR.map(o=>+(o.rev||0).toFixed(2)),
+   backgroundColor:opR.map(o=>o.plat==='YouTube'?'#5bd1a0':'#56c2d6')}]},
+   options:{plugins:{legend:{display:false},title:{display:true,text:'各负责人 · 区间预估收益($)',color:'#cdd2d9'}},scales:{x:{ticks:axc},y:{ticks:axc,grid:grd}}}});
  makeTable(document.getElementById('opTable'),[
    {h:'平台',f:r=>r.plat==='YouTube'?tag('YouTube'):r.plat==='Dailymotion'?tag('Dailymotion'):'混合',s:r=>r.plat},
    {h:'负责人',f:r=>r.op,s:r=>r.op},
    {h:'频道数',num:1,f:r=>fmt(r.nc),s:r=>r.nc},
    {h:'区间视频',num:1,f:r=>fmt(r.nv),s:r=>r.nv},
    {h:'区间播放',num:1,f:r=>fmt(r.views),s:r=>r.views},
+   {h:'区间收益($)',num:1,f:r=>usd(r.rev),s:r=>r.rev||0},
    {h:'单视频均播放',num:1,f:r=>fmt(r.avg),s:r=>r.avg},
    {h:'频道均播放',num:1,f:r=>fmt(r.nc?Math.round(r.views/r.nc):0),s:r=>r.nc?r.views/r.nc:0},
    {h:'点赞率',num:1,f:r=>pct(r.likes,r.views),s:r=>r.views?r.likes/r.views:0,csv:r=>pctNum(r.likes,r.views)},
@@ -324,6 +368,7 @@ function renderChTable(){
    {h:'视频数(总)',num:1,f:r=>fmt(r.videos_total),s:r=>r.videos_total||0},
    {h:'区间视频',num:1,f:r=>fmt(r._n),s:r=>r._n},
    {h:'区间播放',num:1,f:r=>fmt(r._views),s:r=>r._views},
+   {h:'区间收益($)',num:1,f:r=>r.platform==='YouTube'?usd(r._rev):'<span class=muted>—</span>',s:r=>r._rev||0},
    {h:'区间均播放',num:1,f:r=>fmt(r._avg),s:r=>r._avg},
    {h:'点赞率',num:1,f:r=>pct(r._likes,r._views),s:r=>r._views?r._likes/r._views:0,csv:r=>pctNum(r._likes,r._views)},
    {h:'评论率',num:1,f:r=>pct(r._comments,r._views),s:r=>r._views?r._comments/r._views:0,csv:r=>pctNum(r._comments,r._views)},
