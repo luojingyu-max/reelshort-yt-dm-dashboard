@@ -215,6 +215,15 @@ __CHARTJS__
  </div>
  <canvas id="cVid" style="max-height:320px"></canvas>
 </div>
+<div class="card" id="revChCard">
+ <h2>单频道每日收益趋势</h2>
+ <div class="sub" style="margin-bottom:10px">选一个 YouTube 频道,看它在所选区间内的每日预估收益($)。下拉默认按区间收益从高到低排序。受上方"发布日期"区间联动。仅 YouTube 有此数据。</div>
+ <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+  <input type="search" id="rvSearch" placeholder="搜索频道名…" style="flex:1;min-width:220px;background:#0f1115;color:#e6e8eb;border:1px solid #313742;border-radius:6px;padding:7px 10px">
+  <select id="rvSelect" style="flex:2;min-width:280px;background:#0f1115;color:#e6e8eb;border:1px solid #313742;border-radius:6px;padding:7px 10px"></select>
+ </div>
+ <canvas id="cRevCh" style="max-height:320px"></canvas>
+</div>
 <div class="card">
  <h2 id="opTitle">人效比</h2>
  <div class="sub" style="margin-bottom:10px">按负责人聚合(DM 来自 owner.xlsx、YouTube 来自 YouTube账号.xlsx)。<b>单视频均播放</b>是人效核心(产出质量),<b>区间视频数</b>是产出量。「全部」时为双平台汇总对比。受平台/日期筛选联动。</div>
@@ -268,14 +277,19 @@ function render(){
  // 各频道区间预估收益(按收益日期落在 [dFrom,dTo] 累计;仅 YouTube)
  fch.forEach(c=>{ c._rev = c.platform==='YouTube'
    ? (REV[c.channel_id]||[]).reduce((s,a)=>s+(a[0]>=dFrom&&a[0]<=dTo?a[1]:0),0) : 0; });
+ // DM 无收益:隐藏收益相关卡片/KPI/图表
+ const showRev = platform!=='Dailymotion';
+ document.getElementById('revCard').style.display = showRev?'':'none';
+ document.getElementById('revChCard').style.display = showRev?'':'none';
 
  // KPI
  const sum=(a,k)=>a.reduce((s,x)=>s+(x[k]||0),0);
- document.getElementById('kpis').innerHTML=[
+ const kpiItems=[
   ['频道数',fch.length],['区间视频数',fvid.length],
   ['总订阅/粉丝(累计)',sum(fch,'subscribers')],['区间播放合计',sum(fvid,'views')],
-  ['区间预估收益',sum(fch,'_rev'),usd],
- ].map(([l,v,f])=>`<div class=kpi><div class=v>${f?f(v):v.toLocaleString()}</div><div class=l>${l}</div></div>`).join('');
+ ];
+ if(showRev) kpiItems.push(['区间预估收益',sum(fch,'_rev'),usd]);
+ document.getElementById('kpis').innerHTML=kpiItems.map(([l,v,f])=>`<div class=kpi><div class=v>${f?f(v):v.toLocaleString()}</div><div class=l>${l}</div></div>`).join('');
  document.getElementById('insights').innerHTML=buildInsights(fch,fvid).map(b=>`<li>${b}</li>`).join('');
 
  // bar: subscribers (lifetime) top20
@@ -308,15 +322,17 @@ function render(){
        scales:{x:{ticks:axc,grid:grd},y:{ticks:{...axc,autoSkip:false}}}}});
  }
 
- // 日预估收益趋势(选中 YouTube 频道按收益日汇总)
- const revDays={};
- fch.forEach(c=>{ if(c.platform!=='YouTube') return;
-   (REV[c.channel_id]||[]).forEach(a=>{ if(a[0]>=dFrom&&a[0]<=dTo) revDays[a[0]]=(revDays[a[0]]||0)+a[1]; }); });
- const rDates=Object.keys(revDays).sort();
- setChart('cRev',{type:'line',data:{labels:rDates,datasets:[{label:'日预估收益($)',
-   data:rDates.map(d=>+revDays[d].toFixed(2)),borderColor:'#5bd1a0',backgroundColor:'#5bd1a0',tension:.3,pointRadius:1,fill:false}]},
-   options:{plugins:{legend:{display:false},title:{display:true,text:'日预估收益趋势($)',color:'#cdd2d9'}},
-     scales:{x:{ticks:axc},y:{ticks:axc,grid:grd}}}});
+ // 日预估收益趋势(选中 YouTube 频道按收益日汇总;DM tab 跳过)
+ if(showRev){
+   const revDays={};
+   fch.forEach(c=>{ if(c.platform!=='YouTube') return;
+     (REV[c.channel_id]||[]).forEach(a=>{ if(a[0]>=dFrom&&a[0]<=dTo) revDays[a[0]]=(revDays[a[0]]||0)+a[1]; }); });
+   const rDates=Object.keys(revDays).sort();
+   setChart('cRev',{type:'line',data:{labels:rDates,datasets:[{label:'日预估收益($)',
+     data:rDates.map(d=>+revDays[d].toFixed(2)),borderColor:'#5bd1a0',backgroundColor:'#5bd1a0',tension:.3,pointRadius:1,fill:false}]},
+     options:{plugins:{legend:{display:false},title:{display:true,text:'日预估收益趋势($)',color:'#cdd2d9'}},
+       scales:{x:{ticks:axc},y:{ticks:axc,grid:grd}}}});
+ }
 
  // tables
  // 人效比(按负责人聚合;全部=双平台汇总对比)
@@ -332,11 +348,13 @@ function render(){
    options:{plugins:{legend:{display:false},title:{display:true,text:'各负责人 · 区间播放合计',color:'#cdd2d9'}},scales:{x:{ticks:axc},y:{ticks:axc,grid:grd}}}});
  setChart('cOpAvg',{type:'bar',data:{labels:opL,datasets:[{data:opArr.map(o=>o.avg),backgroundColor:opColor}]},
    options:{plugins:{legend:{display:false},title:{display:true,text:'各负责人 · 单视频均播放(人效)',color:'#cdd2d9'}},scales:{x:{ticks:axc},y:{ticks:axc,grid:grd}}}});
- // 各负责人 · 区间预估收益(画在收益卡片的 cRevOp)
- const opR=opArr.slice().sort((a,b)=>(b.rev||0)-(a.rev||0));
- setChart('cRevOp',{type:'bar',data:{labels:opR.map(o=>o.op),datasets:[{data:opR.map(o=>+(o.rev||0).toFixed(2)),
-   backgroundColor:opR.map(o=>o.plat==='YouTube'?'#5bd1a0':'#56c2d6')}]},
-   options:{plugins:{legend:{display:false},title:{display:true,text:'各负责人 · 区间预估收益($)',color:'#cdd2d9'}},scales:{x:{ticks:axc},y:{ticks:axc,grid:grd}}}});
+ // 各负责人 · 区间预估收益(画在收益卡片的 cRevOp;DM tab 跳过)
+ if(showRev){
+   const opR=opArr.slice().sort((a,b)=>(b.rev||0)-(a.rev||0));
+   setChart('cRevOp',{type:'bar',data:{labels:opR.map(o=>o.op),datasets:[{data:opR.map(o=>+(o.rev||0).toFixed(2)),
+     backgroundColor:opR.map(o=>o.plat==='YouTube'?'#5bd1a0':'#56c2d6')}]},
+     options:{plugins:{legend:{display:false},title:{display:true,text:'各负责人 · 区间预估收益($)',color:'#cdd2d9'}},scales:{x:{ticks:axc},y:{ticks:axc,grid:grd}}}});
+ }
  makeTable(document.getElementById('opTable'),[
    {h:'平台',f:r=>r.plat==='YouTube'?tag('YouTube'):r.plat==='Dailymotion'?tag('Dailymotion'):'混合',s:r=>r.plat},
    {h:'负责人',f:r=>r.op,s:r=>r.op},
@@ -354,6 +372,7 @@ function render(){
  renderChTable();
  renderVidTable();
  vOptions();  // 单视频下拉随平台/发布日期筛选刷新
+ if(showRev) rvOptions();  // 单频道收益下拉随平台/日期刷新
 }
 
 // 频道维度表(局部:负责人 + 顶部的平台/日期)
@@ -444,6 +463,18 @@ function buildInsights(fch,fvid){
  const tl=fvid.reduce((s,v)=>s+(v.likes||0),0);
  // 1) 总量 + 单视频均播放
  B.push(`当前共 <b>${fch.length}</b> 个频道、<b>${fvid.length}</b> 条视频,总播放 <b>${wan(tv)}</b>,单视频平均播放 <b>${wan(tv/fvid.length)}</b>。`);
+ // 1.5) 收益维度(仅 YouTube 有数据时)
+ const totRev=fch.reduce((s,c)=>s+(c._rev||0),0);
+ if(platform!=='Dailymotion'&&totRev>0){
+   const rc=fch.filter(c=>(c._rev||0)>0).sort((a,b)=>b._rev-a._rev);
+   const orev={}; fch.forEach(c=>{if(c.operator&&c._rev)orev[c.operator]=(orev[c.operator]||0)+c._rev;});
+   const oa=Object.entries(orev).sort((a,b)=>b[1]-a[1]);
+   let s=`区间预估收益合计 <b>${usd(totRev)}</b>`;
+   if(rc[0]) s+=`,收益最高频道 <b>${rc[0].title}</b>(${usd(rc[0]._rev)})`;
+   if(rc.length>=3) s+=`,Top3 频道贡献 <b>${(rc.slice(0,3).reduce((x,c)=>x+c._rev,0)/totRev*100).toFixed(0)}%</b>`;
+   B.push(s+'。');
+   if(oa.length) B.push(`收益按负责人:${oa.slice(0,4).map(([k,v])=>`${k} <b>${usd(v)}</b>`).join(';')}${oa.length>4?' 等':''}。`);
+ }
  // 2) 平台对比(仅"全部"时)
  const plats=['YouTube','Dailymotion'].map(p=>{const vd=fvid.filter(v=>v.platform===p);
    const vv=vd.reduce((s,v)=>s+(v.views||0),0);
@@ -558,6 +589,33 @@ function drawVid(){
 }
 document.getElementById('vSearch').oninput=vOptions;
 document.getElementById('vSelect').onchange=drawVid;
+
+// ---- 单频道每日收益趋势(仅 YouTube) ----
+function rvRange(cid){ return (REV[cid]||[]).filter(a=>a[0]>=dFrom&&a[0]<=dTo); }
+function rvOptions(){
+ const q=(document.getElementById('rvSearch').value||'').toLowerCase();
+ const sel=document.getElementById('rvSelect'), cur=sel.value;
+ const list=CH.filter(c=>c.platform==='YouTube'&&(c.title||'').toLowerCase().includes(q))
+   .map(c=>({c,rev:rvRange(c.channel_id).reduce((s,a)=>s+a[1],0)}))
+   .sort((a,b)=>b.rev-a.rev);
+ sel.innerHTML=list.map(x=>`<option value="${x.c.channel_id}">${usd(x.rev)} ▸ ${x.c.title}</option>`).join('')
+   || '<option value="">无匹配频道</option>';
+ if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
+ drawRevCh();
+}
+function drawRevCh(){
+ const id=document.getElementById('rvSelect').value;
+ const s=rvRange(id).slice().sort((a,b)=>a[0]<b[0]?-1:1);
+ const labels=s.map(x=>x[0]), data=s.map(x=>+Number(x[1]).toFixed(2));
+ const tot=data.reduce((a,b)=>a+b,0);
+ setChart('cRevCh',{type:'line',data:{labels,datasets:[{label:'日预估收益($)',data,
+   borderColor:'#5bd1a0',backgroundColor:'rgba(91,209,160,.15)',fill:true,tension:.3,pointRadius:2}]},
+   options:{plugins:{legend:{labels:{color:'#8b929c',boxWidth:12}},
+     title:{display:true,text:labels.length?`区间合计 ${usd(tot)}`:'该频道区间内无收益数据',color:'#5bd1a0',font:{size:13}}},
+   scales:{x:{ticks:axc},y:{ticks:axc,grid:grd,title:{display:true,text:'日预估收益($)',color:'#8b929c'}}}}});
+}
+document.getElementById('rvSearch').oninput=rvOptions;
+document.getElementById('rvSelect').onchange=drawRevCh;
 
 // init
 document.getElementById('dFrom').value=DMIN; document.getElementById('dFrom').min=DMIN; document.getElementById('dFrom').max=DMAX;
