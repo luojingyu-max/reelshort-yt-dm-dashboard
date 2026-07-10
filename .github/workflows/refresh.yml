@@ -31,6 +31,7 @@ jobs:
           python3 yt_report.py --file channel_ids.txt --out yt_site/index.html
           python3 dm_report.py --file dm_ids.txt --out yt_site_dm/index.html
           python3 revenue_report.py --start 2026-01-01
+          python3 video_metrics_report.py --days 30
           python3 snapshot.py
           python3 build_combined.py
           python3 make_base_tables.py

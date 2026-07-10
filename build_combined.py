@@ -102,6 +102,32 @@ def main():
             crawl.setdefault(vid, []).append([r["date"], to_int(r.get("total_views")), to_int(r.get("day_views"))])
     for k in crawl: crawl[k].sort(key=lambda x: x[0])
 
+    # 视频维度聚合(来自 videoRevenue 接口, 近 N 天窗口)
+    # 频道×天 -> {channel_id: [[date, subs, avp(完播率), avd(观看时长秒)], ...]}
+    # 注:RPM/互动率依赖的 views 字段服务端暂不可靠,先不展示,故此处不嵌 views/likes 等。
+    cm = {}
+    cmp_ = HERE / "channel_metrics_daily.csv"
+    if cmp_.exists():
+        for r in csv.DictReader(open(cmp_)):
+            cid = r.get("channel_id"); dt = (r.get("date") or "")[:10]
+            if not cid or not dt: continue
+            cm.setdefault(cid, []).append([dt, to_int(r.get("subscribers_gained")) or 0,
+                float(r.get("avg_view_pct") or 0), float(r.get("avg_view_duration") or 0)])
+    for k in cm: cm[k].sort(key=lambda x: x[0])
+    # 频道指标日期也纳入默认范围,否则最近的指标会被默认筛选挡掉
+    _cmd = [row[0] for rows in cm.values() for row in rows]
+    if _cmd:
+        dmin = min(dmin, min(_cmd)); dmax = max(dmax, max(_cmd))
+    # 每视频窗口汇总 -> {video_id: [rev, avp(完播率), avd(观看时长秒)]}
+    vs = {}
+    vsp = HERE / "video_summary.csv"
+    if vsp.exists():
+        for r in csv.DictReader(open(vsp)):
+            vid = r.get("video_id")
+            if not vid: continue
+            vs[vid] = [round(float(r.get("estimated_revenue") or 0), 4),
+                       float(r.get("avg_view_pct") or 0), float(r.get("avg_view_duration") or 0)]
+
     # chart.js 始终走 CDN 外链(不再内联 205KB),减小单文件体积、降低 surge 传输被掐断的概率;
     # 浏览器还能跨站缓存 jsdelivr。pinned 到 4.4.1 与本地 chart.umd.min.js 版本一致,避免大版本漂移。
     chartjs = '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>'
@@ -115,7 +141,9 @@ def main():
             .replace("__HIST__", json.dumps(hist, ensure_ascii=False))
             .replace("__VHIST__", json.dumps(vhist, ensure_ascii=False))
             .replace("__CRAWL__", json.dumps(crawl, ensure_ascii=False))
-            .replace("__REV__", json.dumps(rev, ensure_ascii=False)))
+            .replace("__REV__", json.dumps(rev, ensure_ascii=False))
+            .replace("__CM__", json.dumps(cm, ensure_ascii=False))
+            .replace("__VS__", json.dumps(vs, ensure_ascii=False)))
     out = HERE / "combined_site" / "index.html"
     out.parent.mkdir(exist_ok=True)
     out.write_text(html, encoding="utf-8")
@@ -246,8 +274,9 @@ __CHARTJS__
  <div id="vidTable"></div></div>
 </div>
 <script>
-const CH=__CH__, VID=__VID__, HIST=__HIST__, VHIST=__VHIST__, CRAWL=__CRAWL__, REV=__REV__, DMIN="__DMIN__", DMAX="__DMAX__";
+const CH=__CH__, VID=__VID__, HIST=__HIST__, VHIST=__VHIST__, CRAWL=__CRAWL__, REV=__REV__, CM=__CM__, VS=__VS__, DMIN="__DMIN__", DMAX="__DMAX__";
 const usd=n=>n==null?'<span class=muted>—</span>':'$'+Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const dur=s=>{s=Math.round(s||0);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
 const PALETTE=['#5b9dff','#5bd1a0','#f7b955','#e06c75','#b18cff','#56c2d6','#d49bd4','#9aa7b5'];
 const fmt=n=>n==null?'<span class=muted>—</span>':Number(n).toLocaleString();
 const wan=n=>n==null?'—':(n>=10000?(n/10000).toFixed(1)+'万':Math.round(n).toLocaleString());
@@ -277,6 +306,15 @@ function render(){
  // 各频道区间预估收益(按收益日期落在 [dFrom,dTo] 累计;仅 YouTube)
  fch.forEach(c=>{ c._rev = c.platform==='YouTube'
    ? (REV[c.channel_id]||[]).reduce((s,a)=>s+(a[0]>=dFrom&&a[0]<=dTo?a[1]:0),0) : 0; });
+ // 各频道视频维度指标(近30天窗口, CM=[date,subs,avp,avd]; 完播率/时长按天简单平均, 新增订阅求和)
+ fch.forEach(c=>{
+   let sg=0,aps=0,ads=0,n=0;
+   (CM[c.channel_id]||[]).forEach(a=>{ if(a[0]>=dFrom&&a[0]<=dTo){
+     sg+=a[1]; aps+=a[2]; ads+=a[3]; n++; }});
+   c._subs=sg;
+   c._compl = n? aps/n : null;   // 完播率(平均观看深度%)
+   c._avd   = n? ads/n : null;   // 平均观看时长(秒)
+ });
  // DM 无收益:隐藏收益相关卡片/KPI/图表
  const showRev = platform!=='Dailymotion';
  document.getElementById('revCard').style.display = showRev?'':'none';
@@ -388,6 +426,9 @@ function renderChTable(){
    {h:'区间视频',num:1,f:r=>fmt(r._n),s:r=>r._n},
    {h:'区间播放',num:1,f:r=>fmt(r._views),s:r=>r._views},
    {h:'区间收益($)',num:1,f:r=>r.platform==='YouTube'?usd(r._rev):'<span class=muted>—</span>',s:r=>r._rev||0},
+   {h:'完播率',num:1,f:r=>r.platform==='YouTube'&&r._compl!=null?r._compl.toFixed(1)+'%':'<span class=muted>—</span>',s:r=>r._compl||0,csv:r=>r._compl!=null?r._compl.toFixed(2):''},
+   {h:'平均观看时长',num:1,f:r=>r.platform==='YouTube'&&r._avd!=null?dur(r._avd):'<span class=muted>—</span>',s:r=>r._avd||0,csv:r=>r._avd!=null?Math.round(r._avd):''},
+   {h:'新增订阅',num:1,f:r=>r.platform==='YouTube'?fmt(r._subs):'<span class=muted>—</span>',s:r=>r._subs||0},
    {h:'区间均播放',num:1,f:r=>fmt(r._avg),s:r=>r._avg},
    {h:'点赞率',num:1,f:r=>pct(r._likes,r._views),s:r=>r._views?r._likes/r._views:0,csv:r=>pctNum(r._likes,r._views)},
    {h:'评论率',num:1,f:r=>pct(r._comments,r._views),s:r=>r._views?r._comments/r._views:0,csv:r=>pctNum(r._comments,r._views)},
@@ -405,6 +446,9 @@ function renderVidTable(){
    {h:'发布',f:r=>(r.published_at||'').slice(0,10),s:r=>r.published_at||''},
    {h:'时长',num:1,f:r=>r.duration,s:r=>r.duration_sec},
    {h:'播放',num:1,f:r=>fmt(r.views),s:r=>r.views||0},
+   {h:'收益($)',num:1,f:r=>{const s=VS[r.video_id];return s&&r.platform==='YouTube'?usd(s[0]):'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s?s[0]:0;}},
+   {h:'完播率',num:1,f:r=>{const s=VS[r.video_id];return s&&s[1]?s[1].toFixed(1)+'%':'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s?s[1]:0;}},
+   {h:'平均观看时长',num:1,f:r=>{const s=VS[r.video_id];return s&&s[2]?dur(s[2]):'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s?s[2]:0;}},
    {h:'点赞',num:1,f:r=>fmt(r.likes),s:r=>r.likes||0},
    {h:'评论',num:1,f:r=>fmt(r.comments),s:r=>r.comments||0},
    {h:'点赞率',num:1,f:r=>pct(r.likes,r.views),s:r=>r.views?(r.likes||0)/r.views:0,csv:r=>pctNum(r.likes,r.views)},
