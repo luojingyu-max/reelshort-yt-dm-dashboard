@@ -68,9 +68,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--token", default="")
     ap.add_argument("--channels-file", default="channel_ids.txt")
-    ap.add_argument("--days", type=int, default=30)
+    ap.add_argument("--days", type=int, default=14, help="每次滚动窗口(天);频道指标增量累积,故取近两周即可")
     ap.add_argument("--start", default="")
     ap.add_argument("--end", default=datetime.date.today().isoformat())
+    ap.add_argument("--sleep", type=float, default=0.5, help="翻页间隔秒,节流避免打爆网关")
     ap.add_argument("--out-channel", default="channel_metrics_daily.csv")
     ap.add_argument("--out-video", default="video_summary.csv")
     args = ap.parse_args()
@@ -104,15 +105,24 @@ def main():
             print(f"[page {page}/{last_page}] 频道×天 {len(ch)} / 视频 {len(vid)}")
         if page >= last_page or not d.get("next_page_url"): break
         page += 1
+        time.sleep(args.sleep)   # 节流:避免高频打运维网关被限流
 
-    with open(HERE / args.out_channel, "w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(["date","channel_id","views","likes","comments","shares","subscribers_gained",
-                    "estimated_revenue","avg_view_pct","avg_view_duration"])
-        for (dt, cid) in sorted(ch):
-            a = ch[(dt, cid)]
-            w.writerow([dt, cid, a["views"], a["likes"], a["comments"], a["shares"], a["subs"],
-                        round(a["rev"],4), avg(a,"ap"), avg(a,"ad")])
+    CHDR = ["date","channel_id","views","likes","comments","shares","subscribers_gained",
+            "estimated_revenue","avg_view_pct","avg_view_duration"]
+    # 频道×天:增量累积——读入已有,窗口内的行用新值覆盖,窗口外(更早)的历史保留
+    merged = {}
+    cpath = HERE / args.out_channel
+    if cpath.exists():
+        for r in csv.DictReader(open(cpath)):
+            k = (r.get("date"), r.get("channel_id"))
+            if k[0] and k[1]: merged[k] = [r.get(h,"") for h in CHDR]
+    for (dt, cid) in ch:
+        a = ch[(dt, cid)]
+        merged[(dt, cid)] = [dt, cid, a["views"], a["likes"], a["comments"], a["shares"], a["subs"],
+                             round(a["rev"],4), avg(a,"ap"), avg(a,"ad")]
+    with open(cpath, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f); w.writerow(CHDR)
+        for k in sorted(merged): w.writerow(merged[k])
     with open(HERE / args.out_video, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["video_id","channel_id","views","likes","comments","shares","subscribers_gained",

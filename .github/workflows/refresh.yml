@@ -23,6 +23,13 @@ jobs:
         with: { python-version: '3.12' }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
+      # 视频维度指标:数据量大、网关有频率限制,所以每天只在早上这个时段跑一次(+手动),
+      # 增量累积写入 channel_metrics_daily.csv / video_summary.csv 并提交回仓库,其余时段构建时复用。
+      - name: Fetch video metrics (once/day, throttled)
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '40 22 * * *'
+        env:
+          REVENUE_API_TOKEN: ${{ secrets.REVENUE_API_TOKEN }}
+        run: python3 video_metrics_report.py --days 14 --sleep 0.5
       - name: Fetch data + daily snapshot + build
         env:
           YT_API_KEY: ${{ secrets.YT_API_KEY }}
@@ -31,7 +38,6 @@ jobs:
           python3 yt_report.py --file channel_ids.txt --out yt_site/index.html
           python3 dm_report.py --file dm_ids.txt --out yt_site_dm/index.html
           python3 revenue_report.py --start 2026-01-01
-          python3 video_metrics_report.py --days 30
           python3 snapshot.py
           python3 build_combined.py
           python3 make_base_tables.py
@@ -39,7 +45,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add history/ base_tables/
+          git add history/ base_tables/ channel_metrics_daily.csv video_summary.csv
           git diff --cached --quiet || git commit -m "chore: daily snapshot + base tables $(date -u +%F)"
           git push
       # —— 主托管:GitHub Pages(surge 传 4MB 单文件会中途掐连接,已迁走)——
