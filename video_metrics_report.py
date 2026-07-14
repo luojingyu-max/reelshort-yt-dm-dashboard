@@ -38,7 +38,8 @@ def fetch_page(token, start, end, channel_ids, page, page_size=100, retries=5):
             if body.get("code") != 0:
                 raise RuntimeError(f"code={body.get('code')} msg={body.get('msg')}")
             return body["data"]
-        except (urllib.error.URLError, TimeoutError, RuntimeError, json.JSONDecodeError, ConnectionError) as e:
+        except (OSError, RuntimeError, json.JSONDecodeError) as e:
+            # OSError 覆盖 socket.timeout(py3.9)/TimeoutError/URLError/ConnectionError
             last = e; time.sleep(3 * (n + 1))   # 服务端会限流,退避久一点
     raise SystemExit(f"ERROR: 拉视频指标第 {page} 页失败(重试 {retries} 次): {last}")
 
