@@ -265,6 +265,7 @@ __CHARTJS__
  <div id="opTable" style="margin-top:14px"></div>
 </div>
 <div class="card"><h2>频道维度</h2>
+ <div class="sub" style="margin-bottom:8px">注:<b>区间新增订阅</b>=所选日期区间内<b>累计新涨的订阅数</b>(YouTube subscribersGained 毛增,不扣退订),<b>不是账号当前总粉丝数</b>;缩短日期区间该值会变小。总粉丝看「订阅/粉丝」列。</div>
  <div class="lfilt"><label>负责人</label>
    <div class="ms" id="chOpMs"><button class="btn ms-btn" type="button" data-label="负责人">负责人 ▾</button><div class="ms-panel"></div></div>
    <span class="muted" style="font-size:12px">(可多选 · 发布日期用顶部筛选)</span></div>
@@ -435,7 +436,7 @@ function renderChTable(){
    {h:'平均观看时长',num:1,f:r=>r.platform==='YouTube'&&r._avd!=null?dur(r._avd):'<span class=muted>—</span>',s:r=>r._avd||0,csv:r=>r._avd!=null?Math.round(r._avd):''},
    {h:'互动率',num:1,f:r=>r.platform==='YouTube'&&r._eng!=null?r._eng.toFixed(2)+'%':'<span class=muted>—</span>',s:r=>r._eng||0,csv:r=>r._eng!=null?r._eng.toFixed(2):''},
    {h:'RPM($)',num:1,f:r=>r.platform==='YouTube'&&r._rpm!=null?'$'+r._rpm.toFixed(2):'<span class=muted>—</span>',s:r=>r._rpm||0,csv:r=>r._rpm!=null?r._rpm.toFixed(2):''},
-   {h:'新增订阅',num:1,f:r=>r.platform==='YouTube'?fmt(r._subs):'<span class=muted>—</span>',s:r=>r._subs||0},
+   {h:'区间新增订阅',num:1,f:r=>r.platform==='YouTube'?fmt(r._subs):'<span class=muted>—</span>',s:r=>r._subs||0},
    {h:'区间均播放',num:1,f:r=>fmt(r._avg),s:r=>r._avg},
    {h:'点赞率',num:1,f:r=>pct(r._likes,r._views),s:r=>r._views?r._likes/r._views:0,csv:r=>pctNum(r._likes,r._views)},
    {h:'评论率',num:1,f:r=>pct(r._comments,r._views),s:r=>r._views?r._comments/r._views:0,csv:r=>pctNum(r._comments,r._views)},
