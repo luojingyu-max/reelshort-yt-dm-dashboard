@@ -216,7 +216,7 @@ __CHARTJS__
 </div>
 
 <div class="kpis" id="kpis"></div>
-<div class="card"><h2>数据总结(随筛选自动更新)</h2><ul class="ins" id="insights"></ul></div>
+<div class="card" id="dataSummaryCard" style="display:none"><h2>数据总结(随筛选自动更新)</h2><ul class="ins" id="insights"></ul></div>
 <div class="card grid2">
  <div><h2>各频道订阅/粉丝(累计 · Top20)</h2><canvas id="cSub"></canvas></div>
  <div><h2>各频道区间播放(Top20)</h2><canvas id="cViews"></canvas></div>
@@ -229,7 +229,7 @@ __CHARTJS__
  <div class="sub" style="margin-bottom:10px">按视频发布日期聚合的播放量。<b>频道模式</b>:播放最高的 Top10 频道各一条日线;<b>视频模式</b>:Top10 单视频的播放量。用上方"平台/发布日期"筛选可换一批。</div>
  <canvas id="cDaily" style="max-height:360px"></canvas>
 </div>
-<div class="card" id="revCard">
+<div class="card" id="revCard" style="display:none">
  <h2>YouTube 预估收益(已授权频道)</h2>
  <div class="sub" style="margin-bottom:10px">来自服务端授权接口的 estimated_revenue(USD),按天×频道。受上方"发布日期"区间联动(此处按<b>收益日期</b>累计)。收益数据一般 T+2~3 到账,故最新一两天可能偏低。仅 YouTube 有此数据。</div>
  <div class="grid2">
@@ -246,7 +246,7 @@ __CHARTJS__
  </div>
  <canvas id="cVid" style="max-height:320px"></canvas>
 </div>
-<div class="card" id="revChCard">
+<div class="card" id="revChCard" style="display:none">
  <h2>单频道每日收益趋势</h2>
  <div class="sub" style="margin-bottom:10px">选一个 YouTube 频道,看它在所选区间内的每日预估收益($)。下拉默认按区间收益从高到低排序。受上方"发布日期"区间联动。仅 YouTube 有此数据。</div>
  <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
@@ -255,7 +255,7 @@ __CHARTJS__
  </div>
  <canvas id="cRevCh" style="max-height:320px"></canvas>
 </div>
-<div class="card">
+<div class="card" id="opCard" style="display:none">
  <h2 id="opTitle">人效比</h2>
  <div class="sub" style="margin-bottom:10px">按负责人聚合(DM 来自 owner.xlsx、YouTube 来自 YouTube账号.xlsx)。<b>单视频均播放</b>是人效核心(产出质量),<b>区间视频数</b>是产出量。「全部」时为双平台汇总对比。受平台/日期筛选联动。</div>
  <div class="grid2">
@@ -286,7 +286,7 @@ const fmt=n=>n==null?'<span class=muted>—</span>':Number(n).toLocaleString();
 const wan=n=>n==null?'—':(n>=10000?(n/10000).toFixed(1)+'万':Math.round(n).toLocaleString());
 const pct=(a,b)=>(a==null||!b)?'<span class=muted>—</span>':(a/b*100).toFixed(2)+'%';
 const key=x=>x.platform+'|'+x.channel_id;
-const tag=p=>`<span class="tag ${p==='YouTube'?'yt':'dm'}">${p==='YouTube'?'YT':'DM'}</span>`;
+const tag=p=>`<span class="ptag">${p}</span>`;  /* 品牌合规:不再用类 logo 的 YT/DM 彩标,改纯文本平台名 */
 let platform='all', dFrom=DMIN, dTo=DMAX, charts={}, chartMode='channel';
 // 局部筛选(仅作用于对应的表)
 let baseFch=[], baseFvid=[], chTblOps=new Set(), vidTblOps=new Set(), vidTblCh='all';
@@ -322,9 +322,10 @@ function render(){
    c._rpm   = vw? rv/vw*1000 : null;            // RPM = 收益/播放×1000
  });
  // DM 无收益:隐藏收益相关卡片/KPI/图表
- const showRev = platform!=='Dailymotion';
- document.getElementById('revCard').style.display = showRev?'':'none';
- document.getElementById('revChCard').style.display = showRev?'':'none';
+ // 临时合规隐藏(III.E.4h):收益相关卡片一律隐藏(过审后把 showRev 逻辑恢复)
+ const showRev = false;
+ document.getElementById('revCard').style.display = 'none';
+ document.getElementById('revChCard').style.display = 'none';
 
  // KPI
  const sum=(a,k)=>a.reduce((s,x)=>s+(x[k]||0),0);
@@ -332,7 +333,7 @@ function render(){
   ['频道数',fch.length],['区间视频数',fvid.length],
   ['总订阅/粉丝(累计)',sum(fch,'subscribers')],['区间播放合计',sum(fvid,'views')],
  ];
- if(showRev) kpiItems.push(['区间预估收益',sum(fch,'_rev'),usd]);
+ // 临时合规隐藏(III.E.4h):收益 KPI 暂不展示 —— if(showRev) kpiItems.push(['区间预估收益',sum(fch,'_rev'),usd]);
  document.getElementById('kpis').innerHTML=kpiItems.map(([l,v,f])=>`<div class=kpi><div class=v>${f?f(v):v.toLocaleString()}</div><div class=l>${l}</div></div>`).join('');
  document.getElementById('insights').innerHTML=buildInsights(fch,fvid).map(b=>`<li>${b}</li>`).join('');
 
@@ -431,15 +432,10 @@ function renderChTable(){
    {h:'视频数(总)',num:1,f:r=>fmt(r.videos_total),s:r=>r.videos_total||0},
    {h:'区间视频',num:1,f:r=>fmt(r._n),s:r=>r._n},
    {h:'区间播放',num:1,f:r=>fmt(r._views),s:r=>r._views},
-   {h:'区间收益($)',num:1,f:r=>r.platform==='YouTube'?usd(r._rev):'<span class=muted>—</span>',s:r=>r._rev||0},
    {h:'完播率',num:1,f:r=>r.platform==='YouTube'&&r._compl!=null?r._compl.toFixed(1)+'%':'<span class=muted>—</span>',s:r=>r._compl||0,csv:r=>r._compl!=null?r._compl.toFixed(2):''},
    {h:'平均观看时长',num:1,f:r=>r.platform==='YouTube'&&r._avd!=null?dur(r._avd):'<span class=muted>—</span>',s:r=>r._avd||0,csv:r=>r._avd!=null?Math.round(r._avd):''},
-   {h:'互动率',num:1,f:r=>r.platform==='YouTube'&&r._eng!=null?r._eng.toFixed(2)+'%':'<span class=muted>—</span>',s:r=>r._eng||0,csv:r=>r._eng!=null?r._eng.toFixed(2):''},
-   {h:'RPM($)',num:1,f:r=>r.platform==='YouTube'&&r._rpm!=null?'$'+r._rpm.toFixed(2):'<span class=muted>—</span>',s:r=>r._rpm||0,csv:r=>r._rpm!=null?r._rpm.toFixed(2):''},
    {h:'区间新增订阅',num:1,f:r=>r.platform==='YouTube'?fmt(r._subs):'<span class=muted>—</span>',s:r=>r._subs||0},
-   {h:'区间均播放',num:1,f:r=>fmt(r._avg),s:r=>r._avg},
-   {h:'点赞率',num:1,f:r=>pct(r._likes,r._views),s:r=>r._views?r._likes/r._views:0,csv:r=>pctNum(r._likes,r._views)},
-   {h:'评论率',num:1,f:r=>pct(r._comments,r._views),s:r=>r._views?r._comments/r._views:0,csv:r=>pctNum(r._comments,r._views)},
+   // 临时合规隐藏(III.E.4h):区间收益/互动率/RPM/区间均播放/点赞率/评论率(派生指标)已移除,过审后恢复
  ],rows.slice().sort((a,b)=>b._views-a._views),{pageSize:25,exportName:'channels'});
 }
 
@@ -454,13 +450,11 @@ function renderVidTable(){
    {h:'发布',f:r=>(r.published_at||'').slice(0,10),s:r=>r.published_at||''},
    {h:'时长',num:1,f:r=>r.duration,s:r=>r.duration_sec},
    {h:'播放',num:1,f:r=>fmt(r.views),s:r=>r.views||0},
-   {h:'收益($)',num:1,f:r=>{const s=VS[r.video_id];return s&&r.platform==='YouTube'?usd(s[0]):'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s?s[0]:0;}},
    {h:'完播率',num:1,f:r=>{const s=VS[r.video_id];return s&&s[1]?s[1].toFixed(1)+'%':'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s?s[1]:0;}},
    {h:'平均观看时长',num:1,f:r=>{const s=VS[r.video_id];return s&&s[2]?dur(s[2]):'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s?s[2]:0;}},
-   {h:'互动率',num:1,f:r=>{const s=VS[r.video_id];return s&&s[3]?((s[4]+s[5]+s[6])/s[3]*100).toFixed(2)+'%':'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s&&s[3]?(s[4]+s[5]+s[6])/s[3]:0;}},
    {h:'点赞',num:1,f:r=>fmt(r.likes),s:r=>r.likes||0},
    {h:'评论',num:1,f:r=>fmt(r.comments),s:r=>r.comments||0},
-   {h:'点赞率',num:1,f:r=>pct(r.likes,r.views),s:r=>r.views?(r.likes||0)/r.views:0,csv:r=>pctNum(r.likes,r.views)},
+   // 临时合规隐藏(III.E.4h):视频收益/互动率/点赞率(派生指标)已移除,过审后恢复
  ],rows.slice().sort((a,b)=>(b.views||0)-(a.views||0)),{pageSize:25,exportName:'videos'});
 }
 
