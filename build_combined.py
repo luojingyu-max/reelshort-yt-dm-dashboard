@@ -512,14 +512,7 @@ function buildMultiSel(wrapId, options, selSet, onChange){
 }
 
 const pctNum=(a,b)=>(a==null||!b)?'':(a/b*100).toFixed(2);
-function exportCSV(cols,rows,name){
- const esc=v=>{v=(v==null?'':String(v));return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
- const head=cols.map(c=>esc(c.h)).join(',');
- const body=rows.map(r=>cols.map(c=>esc(c.csv?c.csv(r):c.s(r))).join(',')).join('\n');
- const blob=new Blob(['﻿'+head+'\n'+body],{type:'text/csv;charset=utf-8'});
- const a=document.createElement('a');a.href=URL.createObjectURL(blob);
- a.download=name+'_'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(a.href);
-}
+// 合规:导出/下载能力已整体移除(不保留任何客户端导出 CSV 的函数)
 function buildInsights(fch,fvid){
  if(!fvid.length) return ['当前筛选条件下无数据。'];
  const B=[];
@@ -587,7 +580,7 @@ function makeTable(el,cols,rows,opts){
  t.querySelectorAll('th').forEach((th,i)=>th.onclick=()=>{asc[i]=!asc[i];
    data.sort((a,b)=>{const va=cols[i].s(a),vb=cols[i].s(b);return(va>vb?1:va<vb?-1:0)*(asc[i]?1:-1)});page=1;draw();});
  bar.onclick=e=>{const a=e.target.dataset.act; if(a==='prev'){page--;draw();}
-   else if(a==='next'){page++;draw();} else if(a==='export')exportCSV(cols,data,opts.exportName||'export');};
+   else if(a==='next'){page++;draw();}};
  bar.querySelector('[data-act=size]').onchange=e=>{pageSize=+e.target.value;page=1;draw();};
  el.innerHTML=''; el.appendChild(bar); el.appendChild(t); draw();
 }
