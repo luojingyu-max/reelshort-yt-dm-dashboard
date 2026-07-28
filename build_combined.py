@@ -573,8 +573,8 @@ function buildInsights(fch,fvid){
 function makeTable(el,cols,rows,opts){
  opts=opts||{}; let pageSize=opts.pageSize||25, page=1, asc={}, data=rows.slice();
  const bar=document.createElement('div'); bar.className='tbar';
- bar.innerHTML=`<button class="btn" data-act=export>⬇ 导出 CSV(全部 ${data.length} 条)</button>`
-   +`<span class=pager><button class="btn" data-act=prev>‹ 上一页</button>`
+ // 合规:移除「导出 CSV」下载入口(避免数据被导出留存超30天/再分发)
+ bar.innerHTML=`<span class=pager><button class="btn" data-act=prev>‹ 上一页</button>`
    +`<span class=pageind></span><button class="btn" data-act=next>下一页 ›</button>`
    +` 每页 <select data-act=size><option>25</option><option>50</option><option>100</option></select></span>`;
  const t=document.createElement('table');
