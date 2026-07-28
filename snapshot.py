@@ -12,7 +12,7 @@ HIST = HERE / "history" / "daily.csv"
 VHIST = HERE / "history" / "videos_daily.csv"
 FIELDS = ["date", "platform", "channel_id", "title", "total_views", "subscribers"]
 VFIELDS = ["date", "video_id", "views"]
-VKEEP_DAYS = 90   # 视频级快照体积大,只保留近 90 天
+VKEEP_DAYS = 30   # 合规(III.E.4a-g):YouTube 数据存储不超过 30 天(频道级/视频级快照都裁到 30 天)
 
 def load(path, platform):
     p = HERE / path
@@ -52,6 +52,8 @@ def main():
     if HIST.exists():
         existing = [r for r in csv.DictReader(open(HIST)) if r["date"] != today]  # 去掉今天的旧快照
     merged = existing + rows
+    cutoff = (datetime.date.today() - datetime.timedelta(days=VKEEP_DAYS)).isoformat()
+    merged = [r for r in merged if r["date"] >= cutoff]   # 合规:频道级快照也裁到近 30 天
     with open(HIST, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=FIELDS, extrasaction="ignore")
         w.writeheader(); w.writerows(merged)

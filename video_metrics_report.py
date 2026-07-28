@@ -110,14 +110,16 @@ def main():
 
     CHDR = ["date","channel_id","views","likes","comments","shares","subscribers_gained",
             "estimated_revenue","avg_view_pct","avg_view_duration"]
-    # 频道×天:增量累积——读入已有,窗口内的行用新值覆盖,窗口外(更早)的历史保留
+    # 频道×天:增量累积——读入已有,窗口内的行用新值覆盖。合规(III.E.4a-g):只保留近 30 天,更早的删除
+    cutoff = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
     merged = {}
     cpath = HERE / args.out_channel
     if cpath.exists():
         for r in csv.DictReader(open(cpath)):
             k = (r.get("date"), r.get("channel_id"))
-            if k[0] and k[1]: merged[k] = [r.get(h,"") for h in CHDR]
+            if k[0] and k[1] and k[0] >= cutoff: merged[k] = [r.get(h,"") for h in CHDR]
     for (dt, cid) in ch:
+        if dt < cutoff: continue
         a = ch[(dt, cid)]
         merged[(dt, cid)] = [dt, cid, a["views"], a["likes"], a["comments"], a["shares"], a["subs"],
                              round(a["rev"],4), avg(a,"ap"), avg(a,"ad")]

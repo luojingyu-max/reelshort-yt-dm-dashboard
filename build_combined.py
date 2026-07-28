@@ -131,6 +131,24 @@ def main():
                        to_int(r.get("views")) or 0, to_int(r.get("likes")) or 0,
                        to_int(r.get("comments")) or 0, to_int(r.get("shares")) or 0]
 
+    # —— 合规(III.E.4a-g):YouTube 数据只展示近 30 天,过滤所有嵌入的时间序列 & 锁定日期窗口 ——
+    cap = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
+    videos = [v for v in videos if (v.get("published_at") or "")[:10] >= cap]
+    _vset = {v["video_id"] for v in videos}
+    for k in list(cm):
+        cm[k] = [a for a in cm[k] if a[0] >= cap]
+        if not cm[k]: del cm[k]
+    for k in list(vhist):
+        vhist[k] = [a for a in vhist[k] if a[0] >= cap]
+        if not vhist[k]: del vhist[k]
+    for k in list(crawl):
+        crawl[k] = [a for a in crawl[k] if a[0] >= cap]
+        if not crawl[k]: del crawl[k]
+    hist = [r for r in hist if r["date"] >= cap]
+    vs = {vid: val for vid, val in vs.items() if vid in _vset}
+    rev = {}  # 收益按 E.4h 已移除展示,且不嵌入
+    dmin, dmax = cap, datetime.date.today().isoformat()
+
     # chart.js 始终走 CDN 外链(不再内联 205KB),减小单文件体积、降低 surge 传输被掐断的概率;
     # 浏览器还能跨站缓存 jsdelivr。pinned 到 4.4.1 与本地 chart.umd.min.js 版本一致,避免大版本漂移。
     chartjs = '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>'
@@ -428,8 +446,7 @@ function renderChTable(){
    {h:'负责人',f:r=>r.operator||'<span class=muted>—</span>',s:r=>r.operator||''},
    {h:'频道',f:r=>`<a href="${r.platform==='YouTube'?'https://youtube.com/channel/'+r.channel_id:'https://www.dailymotion.com/'+r.channel_id}" target=_blank>${r.title}</a>`,s:r=>r.title},
    {h:'订阅/粉丝',num:1,f:r=>fmt(r.subscribers),s:r=>r.subscribers||0},
-   {h:'总播放(累计)',num:1,f:r=>fmt(r.total_views),s:r=>r.total_views||0},
-   {h:'视频数(总)',num:1,f:r=>fmt(r.videos_total),s:r=>r.videos_total||0},
+   // 临时合规隐藏(III.E.4a-g):总播放(累计)/视频数(总)属 lifetime(>30天)已移除
    {h:'区间视频',num:1,f:r=>fmt(r._n),s:r=>r._n},
    {h:'区间播放',num:1,f:r=>fmt(r._views),s:r=>r._views},
    {h:'完播率',num:1,f:r=>r.platform==='YouTube'&&r._compl!=null?r._compl.toFixed(1)+'%':'<span class=muted>—</span>',s:r=>r._compl||0,csv:r=>r._compl!=null?r._compl.toFixed(2):''},
