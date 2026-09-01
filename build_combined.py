@@ -74,6 +74,10 @@ def main():
             rev.setdefault(cid, []).append([dt, amt]); rev_dates.append(dt)
     for k in rev: rev[k].sort(key=lambda x: x[0])
 
+    # 只保留 2026-01-01 起发布的视频(2022~2025 发布日口径易误解:播放是当前累计而非当时数据,收益接口也仅到 2026)
+    START_2026 = "2026-01-01"
+    videos = [v for v in videos if (v.get("published_at") or "")[:10] >= START_2026]
+
     # 默认日期范围要同时覆盖「视频发布日」与「收益日」,否则最新收益会被默认筛选挡掉
     dates = sorted([v["published_at"][:10] for v in videos if v.get("published_at")] + rev_dates)
     dmin = dates[0] if dates else "2020-01-01"
@@ -130,6 +134,10 @@ def main():
                        float(r.get("avg_view_pct") or 0), float(r.get("avg_view_duration") or 0),
                        to_int(r.get("views")) or 0, to_int(r.get("likes")) or 0,
                        to_int(r.get("comments")) or 0, to_int(r.get("shares")) or 0]
+
+    # vs 只保留 2026 起过滤后仍在册的视频(与上面的发布日过滤一致,避免嵌入无用数据)
+    _vset = {v["video_id"] for v in videos}
+    vs = {vid: val for vid, val in vs.items() if vid in _vset}
 
     # chart.js 始终走 CDN 外链(不再内联 205KB),减小单文件体积、降低 surge 传输被掐断的概率;
     # 浏览器还能跨站缓存 jsdelivr。pinned 到 4.4.1 与本地 chart.umd.min.js 版本一致,避免大版本漂移。
