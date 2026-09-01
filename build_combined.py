@@ -131,24 +131,6 @@ def main():
                        to_int(r.get("views")) or 0, to_int(r.get("likes")) or 0,
                        to_int(r.get("comments")) or 0, to_int(r.get("shares")) or 0]
 
-    # —— 合规(III.E.4a-g):YouTube 数据只展示近 30 天,过滤所有嵌入的时间序列 & 锁定日期窗口 ——
-    cap = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
-    videos = [v for v in videos if (v.get("published_at") or "")[:10] >= cap]
-    _vset = {v["video_id"] for v in videos}
-    for k in list(cm):
-        cm[k] = [a for a in cm[k] if a[0] >= cap]
-        if not cm[k]: del cm[k]
-    for k in list(vhist):
-        vhist[k] = [a for a in vhist[k] if a[0] >= cap]
-        if not vhist[k]: del vhist[k]
-    for k in list(crawl):
-        crawl[k] = [a for a in crawl[k] if a[0] >= cap]
-        if not crawl[k]: del crawl[k]
-    hist = [r for r in hist if r["date"] >= cap]
-    vs = {vid: val for vid, val in vs.items() if vid in _vset}
-    rev = {}  # 收益按 E.4h 已移除展示,且不嵌入
-    dmin, dmax = cap, datetime.date.today().isoformat()
-
     # chart.js 始终走 CDN 外链(不再内联 205KB),减小单文件体积、降低 surge 传输被掐断的概率;
     # 浏览器还能跨站缓存 jsdelivr。pinned 到 4.4.1 与本地 chart.umd.min.js 版本一致,避免大版本漂移。
     chartjs = '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>'
@@ -234,7 +216,7 @@ __CHARTJS__
 </div>
 
 <div class="kpis" id="kpis"></div>
-<div class="card" id="dataSummaryCard" style="display:none"><h2>数据总结(随筛选自动更新)</h2><ul class="ins" id="insights"></ul></div>
+<div class="card" id="dataSummaryCard"><h2>数据总结(随筛选自动更新)</h2><ul class="ins" id="insights"></ul></div>
 <div class="card grid2">
  <div><h2>各频道订阅/粉丝(累计 · Top20)</h2><canvas id="cSub"></canvas></div>
  <div><h2>各频道区间播放(Top20)</h2><canvas id="cViews"></canvas></div>
@@ -247,7 +229,7 @@ __CHARTJS__
  <div class="sub" style="margin-bottom:10px">按视频发布日期聚合的播放量。<b>频道模式</b>:播放最高的 Top10 频道各一条日线;<b>视频模式</b>:Top10 单视频的播放量。用上方"平台/发布日期"筛选可换一批。</div>
  <canvas id="cDaily" style="max-height:360px"></canvas>
 </div>
-<div class="card" id="revCard" style="display:none">
+<div class="card" id="revCard">
  <h2>YouTube 预估收益(已授权频道)</h2>
  <div class="sub" style="margin-bottom:10px">来自服务端授权接口的 estimated_revenue(USD),按天×频道。受上方"发布日期"区间联动(此处按<b>收益日期</b>累计)。收益数据一般 T+2~3 到账,故最新一两天可能偏低。仅 YouTube 有此数据。</div>
  <div class="grid2">
@@ -264,7 +246,7 @@ __CHARTJS__
  </div>
  <canvas id="cVid" style="max-height:320px"></canvas>
 </div>
-<div class="card" id="revChCard" style="display:none">
+<div class="card" id="revChCard">
  <h2>单频道每日收益趋势</h2>
  <div class="sub" style="margin-bottom:10px">选一个 YouTube 频道,看它在所选区间内的每日预估收益($)。下拉默认按区间收益从高到低排序。受上方"发布日期"区间联动。仅 YouTube 有此数据。</div>
  <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
@@ -273,7 +255,7 @@ __CHARTJS__
  </div>
  <canvas id="cRevCh" style="max-height:320px"></canvas>
 </div>
-<div class="card" id="opCard" style="display:none">
+<div class="card" id="opCard">
  <h2 id="opTitle">人效比</h2>
  <div class="sub" style="margin-bottom:10px">按负责人聚合(DM 来自 owner.xlsx、YouTube 来自 YouTube账号.xlsx)。<b>单视频均播放</b>是人效核心(产出质量),<b>区间视频数</b>是产出量。「全部」时为双平台汇总对比。受平台/日期筛选联动。</div>
  <div class="grid2">
@@ -339,11 +321,10 @@ function render(){
    c._eng   = vw? (lk+cm+sh)/vw*100 : null;     // 互动率 %
    c._rpm   = vw? rv/vw*1000 : null;            // RPM = 收益/播放×1000
  });
- // DM 无收益:隐藏收益相关卡片/KPI/图表
- // 临时合规隐藏(III.E.4h):收益相关卡片一律隐藏(过审后把 showRev 逻辑恢复)
- const showRev = false;
- document.getElementById('revCard').style.display = 'none';
- document.getElementById('revChCard').style.display = 'none';
+ // DM 无收益:有 YouTube 收益时才显示收益相关卡片/图表,DM tab 自动隐藏
+ const showRev = fch.some(c=>c.platform==='YouTube' && (c._rev||0)>0);
+ document.getElementById('revCard').style.display = showRev?'':'none';
+ document.getElementById('revChCard').style.display = showRev?'':'none';
 
  // KPI
  const sum=(a,k)=>a.reduce((s,x)=>s+(x[k]||0),0);
@@ -351,7 +332,7 @@ function render(){
   ['频道数',fch.length],['区间视频数',fvid.length],
   ['总订阅/粉丝(累计)',sum(fch,'subscribers')],['区间播放合计',sum(fvid,'views')],
  ];
- // 临时合规隐藏(III.E.4h):收益 KPI 暂不展示 —— if(showRev) kpiItems.push(['区间预估收益',sum(fch,'_rev'),usd]);
+ if(showRev) kpiItems.push(['区间预估收益',sum(fch,'_rev'),usd]);
  document.getElementById('kpis').innerHTML=kpiItems.map(([l,v,f])=>`<div class=kpi><div class=v>${f?f(v):v.toLocaleString()}</div><div class=l>${l}</div></div>`).join('');
  document.getElementById('insights').innerHTML=buildInsights(fch,fvid).map(b=>`<li>${b}</li>`).join('');
 
@@ -446,13 +427,19 @@ function renderChTable(){
    {h:'负责人',f:r=>r.operator||'<span class=muted>—</span>',s:r=>r.operator||''},
    {h:'频道',f:r=>`<a href="${r.platform==='YouTube'?'https://youtube.com/channel/'+r.channel_id:'https://www.dailymotion.com/'+r.channel_id}" target=_blank>${r.title}</a>`,s:r=>r.title},
    {h:'订阅/粉丝',num:1,f:r=>fmt(r.subscribers),s:r=>r.subscribers||0},
-   // 临时合规隐藏(III.E.4a-g):总播放(累计)/视频数(总)属 lifetime(>30天)已移除
+   {h:'总播放累计',num:1,f:r=>fmt(r.total_views),s:r=>r.total_views||0},
+   {h:'视频数总',num:1,f:r=>fmt(r.videos_total),s:r=>r.videos_total||0},
    {h:'区间视频',num:1,f:r=>fmt(r._n),s:r=>r._n},
    {h:'区间播放',num:1,f:r=>fmt(r._views),s:r=>r._views},
    {h:'完播率',num:1,f:r=>r.platform==='YouTube'&&r._compl!=null?r._compl.toFixed(1)+'%':'<span class=muted>—</span>',s:r=>r._compl||0,csv:r=>r._compl!=null?r._compl.toFixed(2):''},
    {h:'平均观看时长',num:1,f:r=>r.platform==='YouTube'&&r._avd!=null?dur(r._avd):'<span class=muted>—</span>',s:r=>r._avd||0,csv:r=>r._avd!=null?Math.round(r._avd):''},
    {h:'区间新增订阅',num:1,f:r=>r.platform==='YouTube'?fmt(r._subs):'<span class=muted>—</span>',s:r=>r._subs||0},
-   // 临时合规隐藏(III.E.4h):区间收益/互动率/RPM/区间均播放/点赞率/评论率(派生指标)已移除,过审后恢复
+   {h:'区间收益',num:1,f:r=>r.platform==='YouTube'?usd(r._rev):'<span class=muted>—</span>',s:r=>r._rev||0,csv:r=>r._rev||0},
+   {h:'RPM',num:1,f:r=>r.platform==='YouTube'&&r._rpm!=null?usd(r._rpm):'<span class=muted>—</span>',s:r=>r._rpm||0,csv:r=>r._rpm!=null?r._rpm.toFixed(2):''},
+   {h:'互动率',num:1,f:r=>r._eng!=null?r._eng.toFixed(2)+'%':'<span class=muted>—</span>',s:r=>r._eng||0,csv:r=>r._eng!=null?r._eng.toFixed(2):''},
+   {h:'区间均播放',num:1,f:r=>fmt(r._avg),s:r=>r._avg||0},
+   {h:'点赞率',num:1,f:r=>pct(r._likes,r._views),s:r=>r._views?r._likes/r._views:0,csv:r=>pctNum(r._likes,r._views)},
+   {h:'评论率',num:1,f:r=>pct(r._comments,r._views),s:r=>r._views?r._comments/r._views:0,csv:r=>pctNum(r._comments,r._views)},
  ],rows.slice().sort((a,b)=>b._views-a._views),{pageSize:25,exportName:'channels'});
 }
 
@@ -471,7 +458,9 @@ function renderVidTable(){
    {h:'平均观看时长',num:1,f:r=>{const s=VS[r.video_id];return s&&s[2]?dur(s[2]):'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s?s[2]:0;}},
    {h:'点赞',num:1,f:r=>fmt(r.likes),s:r=>r.likes||0},
    {h:'评论',num:1,f:r=>fmt(r.comments),s:r=>r.comments||0},
-   // 临时合规隐藏(III.E.4h):视频收益/互动率/点赞率(派生指标)已移除,过审后恢复
+   {h:'收益',num:1,f:r=>{const s=VS[r.video_id];return s&&s[0]?usd(s[0]):'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s?s[0]:0;},csv:r=>{const s=VS[r.video_id];return s&&s[0]?s[0]:'';}},
+   {h:'互动率',num:1,f:r=>{const s=VS[r.video_id];return s&&s[3]?((s[4]+s[5]+s[6])/s[3]*100).toFixed(2)+'%':'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s&&s[3]?(s[4]+s[5]+s[6])/s[3]:0;}},
+   {h:'点赞率',num:1,f:r=>{const s=VS[r.video_id];return s&&s[3]?(s[4]/s[3]*100).toFixed(2)+'%':'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s&&s[3]?s[4]/s[3]:0;}},
  ],rows.slice().sort((a,b)=>(b.views||0)-(a.views||0)),{pageSize:25,exportName:'videos'});
 }
 
@@ -512,7 +501,14 @@ function buildMultiSel(wrapId, options, selSet, onChange){
 }
 
 const pctNum=(a,b)=>(a==null||!b)?'':(a/b*100).toFixed(2);
-// 合规:导出/下载能力已整体移除(不保留任何客户端导出 CSV 的函数)
+function exportCSV(cols,rows,name){
+ const esc=v=>{v=(v==null?'':String(v));return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+ const head=cols.map(c=>esc(c.h)).join(',');
+ const body=rows.map(r=>cols.map(c=>esc(c.csv?c.csv(r):c.s(r))).join(',')).join('\n');
+ const blob=new Blob(['﻿'+head+'\n'+body],{type:'text/csv;charset=utf-8'});
+ const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+ a.download=name+'_'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(a.href);
+}
 function buildInsights(fch,fvid){
  if(!fvid.length) return ['当前筛选条件下无数据。'];
  const B=[];
@@ -566,8 +562,8 @@ function buildInsights(fch,fvid){
 function makeTable(el,cols,rows,opts){
  opts=opts||{}; let pageSize=opts.pageSize||25, page=1, asc={}, data=rows.slice();
  const bar=document.createElement('div'); bar.className='tbar';
- // 合规:移除「导出 CSV」下载入口(避免数据被导出留存超30天/再分发)
- bar.innerHTML=`<span class=pager><button class="btn" data-act=prev>‹ 上一页</button>`
+ bar.innerHTML=`<button class="btn" data-act=export>⬇ 导出 CSV(全部 ${data.length} 条)</button>`
+   +`<span class=pager><button class="btn" data-act=prev>‹ 上一页</button>`
    +`<span class=pageind></span><button class="btn" data-act=next>下一页 ›</button>`
    +` 每页 <select data-act=size><option>25</option><option>50</option><option>100</option></select></span>`;
  const t=document.createElement('table');
@@ -580,7 +576,7 @@ function makeTable(el,cols,rows,opts){
  t.querySelectorAll('th').forEach((th,i)=>th.onclick=()=>{asc[i]=!asc[i];
    data.sort((a,b)=>{const va=cols[i].s(a),vb=cols[i].s(b);return(va>vb?1:va<vb?-1:0)*(asc[i]?1:-1)});page=1;draw();});
  bar.onclick=e=>{const a=e.target.dataset.act; if(a==='prev'){page--;draw();}
-   else if(a==='next'){page++;draw();}};
+   else if(a==='next'){page++;draw();} else if(a==='export')exportCSV(cols,data,opts.exportName||'export');};
  bar.querySelector('[data-act=size]').onchange=e=>{pageSize=+e.target.value;page=1;draw();};
  el.innerHTML=''; el.appendChild(bar); el.appendChild(t); draw();
 }
