@@ -25,8 +25,11 @@ jobs:
         with: { node-version: '20' }
       # 视频维度指标:数据量大、网关有频率限制,所以每天只在早上这个时段跑一次(+手动),
       # 增量累积写入 channel_metrics_daily.csv / video_summary.csv 并提交回仓库,其余时段构建时复用。
+      # 服务端 /videoRevenue 接口已下线(暴露风险),此步容错:失败不影响整个 Action,
+      # 公开数据部分继续日更;channel_metrics/video_summary 保留上次成功值(冻结)。
       - name: Fetch video metrics (once/day, throttled)
         if: github.event_name == 'workflow_dispatch' || github.event.schedule == '40 22 * * *'
+        continue-on-error: true
         env:
           REVENUE_API_TOKEN: ${{ secrets.REVENUE_API_TOKEN }}
         run: python3 video_metrics_report.py --days 10 --sleep 0.5
@@ -37,7 +40,8 @@ jobs:
         run: |
           python3 yt_report.py --file channel_ids.txt --out yt_site/index.html
           python3 dm_report.py --file dm_ids.txt --out yt_site_dm/index.html
-          python3 revenue_report.py --start 2026-01-01
+          # /revenue 接口已下线:容错跳过,收益栏位暂空,不阻断后续构建
+          python3 revenue_report.py --start 2026-01-01 || echo "[warn] revenue 接口不可用,跳过收益取数"
           python3 snapshot.py
           python3 build_combined.py
           python3 make_base_tables.py
