@@ -10,7 +10,7 @@
 
 用法: python3 build_combined.py
 """
-import csv, json, pathlib, datetime, sys
+import csv, json, pathlib, datetime, sys, os
 
 HERE = pathlib.Path(__file__).parent
 
@@ -143,8 +143,16 @@ def main():
     # 浏览器还能跨站缓存 jsdelivr。pinned 到 4.4.1 与本地 chart.umd.min.js 版本一致,避免大版本漂移。
     chartjs = '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>'
 
+    # —— 公开脱敏开关:公开构建(默认)不嵌入服务端来源的敏感数据,也隐藏对应列/卡片 ——
+    #    内部看板构建时设 PUBLIC_SAFE=0,即可拿回收益/完播率/观看时长/新增订阅/分享/RPM 全指标。
+    public_safe = os.environ.get("PUBLIC_SAFE", "1") != "0"
+    if public_safe:
+        rev, cm, vs = {}, {}, {}   # 收益(/revenue)、频道×天与视频(/videoRevenue)一律不嵌入公开页
+    sens_flag = "false" if public_safe else "true"
+
     html = (TEMPLATE
             .replace("__CHARTJS__", chartjs)
+            .replace("__SENS__", sens_flag)
             .replace("__GEN__", datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
             .replace("__DMIN__", dmin).replace("__DMAX__", dmax)
             .replace("__CH__", json.dumps(channels, ensure_ascii=False))
@@ -286,7 +294,7 @@ __CHARTJS__
  <div id="vidTable"></div></div>
 </div>
 <script>
-const CH=__CH__, VID=__VID__, HIST=__HIST__, VHIST=__VHIST__, CRAWL=__CRAWL__, REV=__REV__, CM=__CM__, VS=__VS__, DMIN="__DMIN__", DMAX="__DMAX__";
+const CH=__CH__, VID=__VID__, HIST=__HIST__, VHIST=__VHIST__, CRAWL=__CRAWL__, REV=__REV__, CM=__CM__, VS=__VS__, DMIN="__DMIN__", DMAX="__DMAX__", SENS=__SENS__;
 const usd=n=>n==null?'<span class=muted>—</span>':'$'+Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 const dur=s=>{s=Math.round(s||0);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
 const PALETTE=['#5b9dff','#5bd1a0','#f7b955','#e06c75','#b18cff','#56c2d6','#d49bd4','#9aa7b5'];
@@ -413,7 +421,7 @@ function render(){
    {h:'频道数',num:1,f:r=>fmt(r.nc),s:r=>r.nc},
    {h:'区间视频',num:1,f:r=>fmt(r.nv),s:r=>r.nv},
    {h:'区间播放',num:1,f:r=>fmt(r.views),s:r=>r.views},
-   {h:'区间收益($)',num:1,f:r=>usd(r.rev),s:r=>r.rev||0},
+   {h:'区间收益($)',sens:1,num:1,f:r=>usd(r.rev),s:r=>r.rev||0},
    {h:'单视频均播放',num:1,f:r=>fmt(r.avg),s:r=>r.avg},
    {h:'频道均播放',num:1,f:r=>fmt(r.nc?Math.round(r.views/r.nc):0),s:r=>r.nc?r.views/r.nc:0},
    {h:'点赞率',num:1,f:r=>pct(r.likes,r.views),s:r=>r.views?r.likes/r.views:0,csv:r=>pctNum(r.likes,r.views)},
@@ -439,12 +447,12 @@ function renderChTable(){
    {h:'视频数总',num:1,f:r=>fmt(r.videos_total),s:r=>r.videos_total||0},
    {h:'区间视频',num:1,f:r=>fmt(r._n),s:r=>r._n},
    {h:'区间播放',num:1,f:r=>fmt(r._views),s:r=>r._views},
-   {h:'完播率',num:1,f:r=>r.platform==='YouTube'&&r._compl!=null?r._compl.toFixed(1)+'%':'<span class=muted>—</span>',s:r=>r._compl||0,csv:r=>r._compl!=null?r._compl.toFixed(2):''},
-   {h:'平均观看时长',num:1,f:r=>r.platform==='YouTube'&&r._avd!=null?dur(r._avd):'<span class=muted>—</span>',s:r=>r._avd||0,csv:r=>r._avd!=null?Math.round(r._avd):''},
-   {h:'区间新增订阅',num:1,f:r=>r.platform==='YouTube'?fmt(r._subs):'<span class=muted>—</span>',s:r=>r._subs||0},
-   {h:'区间收益',num:1,f:r=>r.platform==='YouTube'?usd(r._rev):'<span class=muted>—</span>',s:r=>r._rev||0,csv:r=>r._rev||0},
-   {h:'RPM',num:1,f:r=>r.platform==='YouTube'&&r._rpm!=null?usd(r._rpm):'<span class=muted>—</span>',s:r=>r._rpm||0,csv:r=>r._rpm!=null?r._rpm.toFixed(2):''},
-   {h:'互动率',num:1,f:r=>r._eng!=null?r._eng.toFixed(2)+'%':'<span class=muted>—</span>',s:r=>r._eng||0,csv:r=>r._eng!=null?r._eng.toFixed(2):''},
+   {h:'完播率',sens:1,num:1,f:r=>r.platform==='YouTube'&&r._compl!=null?r._compl.toFixed(1)+'%':'<span class=muted>—</span>',s:r=>r._compl||0,csv:r=>r._compl!=null?r._compl.toFixed(2):''},
+   {h:'平均观看时长',sens:1,num:1,f:r=>r.platform==='YouTube'&&r._avd!=null?dur(r._avd):'<span class=muted>—</span>',s:r=>r._avd||0,csv:r=>r._avd!=null?Math.round(r._avd):''},
+   {h:'区间新增订阅',sens:1,num:1,f:r=>r.platform==='YouTube'?fmt(r._subs):'<span class=muted>—</span>',s:r=>r._subs||0},
+   {h:'区间收益',sens:1,num:1,f:r=>r.platform==='YouTube'?usd(r._rev):'<span class=muted>—</span>',s:r=>r._rev||0,csv:r=>r._rev||0},
+   {h:'RPM',sens:1,num:1,f:r=>r.platform==='YouTube'&&r._rpm!=null?usd(r._rpm):'<span class=muted>—</span>',s:r=>r._rpm||0,csv:r=>r._rpm!=null?r._rpm.toFixed(2):''},
+   {h:'互动率',num:1,f:r=>r._views?((r._likes+r._comments)/r._views*100).toFixed(2)+'%':'<span class=muted>—</span>',s:r=>r._views?(r._likes+r._comments)/r._views:0,csv:r=>r._views?((r._likes+r._comments)/r._views*100).toFixed(2):''},
    {h:'区间均播放',num:1,f:r=>fmt(r._avg),s:r=>r._avg||0},
    {h:'点赞率',num:1,f:r=>pct(r._likes,r._views),s:r=>r._views?r._likes/r._views:0,csv:r=>pctNum(r._likes,r._views)},
    {h:'评论率',num:1,f:r=>pct(r._comments,r._views),s:r=>r._views?r._comments/r._views:0,csv:r=>pctNum(r._comments,r._views)},
@@ -462,13 +470,13 @@ function renderVidTable(){
    {h:'发布',f:r=>(r.published_at||'').slice(0,10),s:r=>r.published_at||''},
    {h:'时长',num:1,f:r=>r.duration,s:r=>r.duration_sec},
    {h:'播放',num:1,f:r=>fmt(r.views),s:r=>r.views||0},
-   {h:'完播率',num:1,f:r=>{const s=VS[r.video_id];return s&&s[1]?s[1].toFixed(1)+'%':'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s?s[1]:0;}},
-   {h:'平均观看时长',num:1,f:r=>{const s=VS[r.video_id];return s&&s[2]?dur(s[2]):'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s?s[2]:0;}},
+   {h:'完播率',sens:1,num:1,f:r=>{const s=VS[r.video_id];return s&&s[1]?s[1].toFixed(1)+'%':'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s?s[1]:0;}},
+   {h:'平均观看时长',sens:1,num:1,f:r=>{const s=VS[r.video_id];return s&&s[2]?dur(s[2]):'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s?s[2]:0;}},
    {h:'点赞',num:1,f:r=>fmt(r.likes),s:r=>r.likes||0},
    {h:'评论',num:1,f:r=>fmt(r.comments),s:r=>r.comments||0},
-   {h:'收益',num:1,f:r=>{const s=VS[r.video_id];return s&&s[0]?usd(s[0]):'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s?s[0]:0;},csv:r=>{const s=VS[r.video_id];return s&&s[0]?s[0]:'';}},
-   {h:'互动率',num:1,f:r=>{const s=VS[r.video_id];return s&&s[3]?((s[4]+s[5]+s[6])/s[3]*100).toFixed(2)+'%':'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s&&s[3]?(s[4]+s[5]+s[6])/s[3]:0;}},
-   {h:'点赞率',num:1,f:r=>{const s=VS[r.video_id];return s&&s[3]?(s[4]/s[3]*100).toFixed(2)+'%':'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s&&s[3]?s[4]/s[3]:0;}},
+   {h:'收益',sens:1,num:1,f:r=>{const s=VS[r.video_id];return s&&s[0]?usd(s[0]):'<span class=muted>—</span>';},s:r=>{const s=VS[r.video_id];return s?s[0]:0;},csv:r=>{const s=VS[r.video_id];return s&&s[0]?s[0]:'';}},
+   {h:'互动率',num:1,f:r=>r.views?((r.likes+r.comments)/r.views*100).toFixed(2)+'%':'<span class=muted>—</span>',s:r=>r.views?(r.likes+r.comments)/r.views:0,csv:r=>r.views?((r.likes+r.comments)/r.views*100).toFixed(2):''},
+   {h:'点赞率',num:1,f:r=>r.views?(r.likes/r.views*100).toFixed(2)+'%':'<span class=muted>—</span>',s:r=>r.views?r.likes/r.views:0,csv:r=>r.views?(r.likes/r.views*100).toFixed(2):''},
  ],rows.slice().sort((a,b)=>(b.views||0)-(a.views||0)),{pageSize:25,exportName:'videos'});
 }
 
@@ -568,6 +576,7 @@ function buildInsights(fch,fvid){
  return B;
 }
 function makeTable(el,cols,rows,opts){
+ cols=cols.filter(c=>SENS||!c.sens);   // 公开脱敏:SENS=false 时隐藏敏感(服务端来源)列
  opts=opts||{}; let pageSize=opts.pageSize||25, page=1, asc={}, data=rows.slice();
  const bar=document.createElement('div'); bar.className='tbar';
  bar.innerHTML=`<button class="btn" data-act=export>⬇ 导出 CSV(全部 ${data.length} 条)</button>`

@@ -9,3 +9,5 @@ yt_site/
 yt_site_dm/
 
 # 注意: history/ 与 base_tables/ 是需要入库的(Action 会提交每日快照)
+channel_metrics_daily.csv
+video_summary.csv
